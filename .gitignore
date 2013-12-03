@@ -1,0 +1,4 @@
+*.torrent
+*.swp
+*~
+.DS_Store
