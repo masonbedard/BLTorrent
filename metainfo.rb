@@ -43,6 +43,10 @@ class Metainfo
   end
 
   def self.parseTrackerResponse(res)
+
+    # DEAL WITH OTHER KEYS OF RESPONSE
+    # LIKE INTERVAL AND MININTERVAL
+    
     result = []
     dict = BEncode::load(res)
     peers = dict["peers"].bytes.to_a
