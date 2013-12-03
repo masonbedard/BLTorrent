@@ -24,6 +24,8 @@ class Metainfo
 
     info = dict["info"]
 
+    infoHash = Digest::SHA1.digest(info.bencode)
+
     pieceLength = info["piece length"]
     pieces = info["pieces"].chars.each_slice(20).map(&:join)
 
@@ -36,8 +38,6 @@ class Metainfo
     else # single file
       files = [{path: info["file"], length: info["length"]}]
     end
-
-    infoHash = Digest::SHA1.digest(info.bencode)
 
     Metainfo.new(announce, pieceLength, pieces, files, infoHash)
   end
@@ -59,6 +59,10 @@ class Metainfo
       i += 6
     end
     return result
+  end
+
+  def to_s
+    "Metainfo: <Tracker: #{@announce} Num pieces: #{@pieces.length}>"
   end
 end
 

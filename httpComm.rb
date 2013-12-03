@@ -15,7 +15,7 @@ class HttpComm
         params['left'] = '1'
         params['uploaded'] = '0'
         params['downloaded'] = '0'
-        params['numwant'] = '-1'
+        params['numwant'] = '50'
         params['port'] = '6889'
         params['event'] = 'started'
         
@@ -30,5 +30,9 @@ class HttpComm
         return nil
     end
 
+    def self.sendHandshake(socket, infoHash, peerId)
+        data = "\x19BitTorrent protocol\x00\x00\x00\x00\x00\x00\x00\x00#{infoHash}#{peerId}"
+        socket.write data
+    end
 end
 
