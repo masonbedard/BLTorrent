@@ -7,7 +7,6 @@ require './event'
 filename = ARGV[0]
 
 metainfo = Metainfo::parseFile(filename)
-puts metainfo.to_s
 
 client = Client.new(metainfo)
 

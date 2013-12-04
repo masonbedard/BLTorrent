@@ -22,7 +22,6 @@ class Comm
         #consider compact = 0?
 
         uri.query = URI.encode_www_form(params)
-
         res = Net::HTTP.get_response(uri)
         if res.is_a?(Net::HTTPSuccess) then
             return res.body
