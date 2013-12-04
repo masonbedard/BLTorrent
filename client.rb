@@ -6,7 +6,7 @@ class Client
     @metainfo = metainfo
     @peerId = "BLT--#{Time::now.to_i}--#{Process::pid}BLT"[0...20]
 
-    response = HttpComm::makeTrackerRequest(@metainfo.announce,@metainfo.infoHash, @peerId)
+    response = Comm::makeTrackerRequest(@metainfo.announce,@metainfo.infoHash, @peerId)
     @peers = Metainfo::parseTrackerResponse(response)
 
     connectToPeers
@@ -23,7 +23,7 @@ class Client
         continue
       end
       peer.socket = TCPSocket.new(peer.ip, peer.port)
-      HttpComm::sendHandshake(peer.socket, @metainfo.infoHash, @peerId)
+      Comm::sendHandshake(peer.socket, @metainfo.infoHash, @peerId)
     end
   end
 

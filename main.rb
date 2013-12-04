@@ -1,6 +1,6 @@
 require './client.rb'
 require './metainfo.rb'
-require './httpComm.rb'
+require './comm.rb'
 require './peer.rb'
 
 filename = ARGV[0]
