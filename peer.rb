@@ -1,5 +1,5 @@
 class Peer
-    attr_accessor :ip, :port, :socket, :connected, :am_chocking, :am_interested, :is_chocking, :is_interested
+    attr_accessor :ip, :port, :socket, :connected, :am_chocking, :am_interested, :is_chocking, :is_interested, :tried
     def initialize(ip, port)
         @ip = ip
         @port = port
@@ -9,6 +9,7 @@ class Peer
         @am_interested = false
         @is_chocking = false
         @is_interested = false
+        @tried = false
     end
 
     def to_s

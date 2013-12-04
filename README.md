@@ -3,4 +3,4 @@ BLTorrent
 
 Bacon Lettuce Torrent
 
-a project by mason bedard that chris terefinko sometimes tries to contribute to
+a project written by chris terefinko that mason bedard will try and take credit from
