@@ -48,7 +48,7 @@ class Client
     while true do # Change to make sure there is data to download eventually....
       fds = @peers.select { |peer| peer.connected }.map { |peer| peer.socket }
 
-      ready, = IO.select(fds, nil, nil, 5)
+      ready = IO.select(fds, nil, nil, 5)
       if ready.nil? then
         next
       end
@@ -61,4 +61,5 @@ class Client
       end
     end
   end
+
 end
