@@ -61,14 +61,18 @@ class Client
         puts "#{peer}"
         data = fd.read(4)# find length of message
         if data.nil?
-          puts "Peer disconnected #{peer}"
           peer.connected = false
+          puts "Peer disconnected #{peer}"
+          next
         end
         len = data.unpack("H*")[0].to_i(16)
         if len > 0 then
-          message = fd.read(len)
+          message = ""
+          while message.length < len
+            message.concat fd.read(len - message.length)
+          end 
           puts "Length: #{len} got: #{message.length}"
-          puts message.unpack("H*")
+          # puts message.unpack("H*")
         else 
           puts "Got keep alive #{Time.now} Len: #{len} Closed: #{fd.closed?}"
         end
