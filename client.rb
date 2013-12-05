@@ -21,7 +21,7 @@ class Client
     @metainfo = metainfo
     @peerId = "BLT--#{Time::now.to_i}--#{Process::pid}BLT"[0...20]
     @pieces = genPiecesArray(@metainfo.pieceLength, @metainfo.pieces.size)
-
+    p "done"
     response = Comm::makeTrackerRequest(@metainfo.announce,@metainfo.infoHash, @peerId)
     @peers = Metainfo::parseTrackerResponse(response)
     puts "Num peers: #{@peers.length}"
@@ -110,6 +110,25 @@ class Client
           puts "Got keep alive #{Time.now} Len: #{len} Closed: #{fd.closed?}"
         end
       end
+      i = 0
+      while (i < @pieces.length)
+        piece = @pieces[i]
+        if not piece.complete? then
+          peers_with_piece = @peers.select { |peer| peer.connected && peer.pieces[i]}
+          #p "peers with piece: #{peers_with_piece.length}"
+          peers_with_piece.each { |peer|
+            if not peer.am_interested then
+              Comm::sendMessage(peer.socket, "interested")
+              p "***********Sending interested to #{peer.to_s}"
+              peer.am_interested = true
+            end
+            if not peer.is_choking then
+              Comm::sendMessage(peer.socket, "request", i, 0)
+            end
+          }
+        end
+        i = i+1
+      end
     end
   end
 
@@ -137,9 +156,9 @@ class Client
         i = 1
         bitmap = ""
         while (i < length) 
-            p "byte number #{i}"
-            p message[i]
-            p message[i].unpack("H*")[0].to_i(16).to_s(2)
+            #p "byte number #{i}"
+            #p message[i]
+            #p message[i].unpack("H*")[0].to_i(16).to_s(2)
             bitmap += message[i].unpack("H*")[0].to_i(16).to_s(2)
             i += 1
         end
@@ -161,7 +180,8 @@ class Client
         p "piece"
         pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
         offset = message[5..8].unpack("H*")[0].to_i(16)
-        @pieces[pieceIndex].data[offset..(offset + @metainfo.pieceLength)] = message[6..message.length]
+        data = message[6..message.length]
+        @pieces[pieceIndex].writeData(offset, data)
     when "\x08"
         p "cancel"
         pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
@@ -176,7 +196,9 @@ class Client
     when "\x09"
         p "port"
     end
-end
+  end
 
-
+  def getRarestPiece #TODO
+    @pieces.select {|piece| not piece.complete? }[0]
+  end
 end

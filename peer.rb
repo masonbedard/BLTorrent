@@ -5,9 +5,9 @@ class Peer
         @port = port
         @socket = nil
         @connected = false
-        @am_choking = false
+        @am_choking = true
         @am_interested = false
-        @is_choking = false
+        @is_choking = true
         @is_interested = false
         @tried = false
         @pieces = {}

@@ -41,7 +41,7 @@ class Comm
         socket.write data
     end
 
-    def self.sendMessage(socket, message, first, second, third)
+    def self.sendMessage(socket, message, first=nil, second=nil, third=nil)
         case message
         when "keep-alive"
             data = "\x00\x00\x00\x00"
@@ -96,7 +96,7 @@ class Comm
             data = "\x00\x00\x00\x03\x09"
             data += getHex(first, 8)
         end
-        p data
+        #p data
         socket.write data
     end
 
