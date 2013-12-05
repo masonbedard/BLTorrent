@@ -133,7 +133,7 @@ class Client
       #   i = i+1
       # end
       @peers.each { |peer| # disconnect if nothing recv
-        if peer.connected && Time.now-120 > peer.commRecv then
+        if peer.connected && Time.now-12{0 > peer.commRecv then
           send_event(:peerDisconnect, peer, "No connectivity seen")
         end
       }
