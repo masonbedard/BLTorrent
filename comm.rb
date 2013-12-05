@@ -36,12 +36,15 @@ class Comm
         return nil
     end
 
-    def self.sendHandshake(socket, infoHash, peerId)
+    def self.sendHandshake(peer, infoHash, peerId)
+        socket = peer.socket
         data = "\x13BitTorrent protocol\x00\x00\x00\x00\x00\x00\x00\x00#{infoHash}#{peerId}"
         socket.write data
+        peer.commSent = Time.now
     end
 
-    def self.sendMessage(socket, message, first=nil, second=nil, third=nil)
+    def self.sendMessage(peer, message, first=nil, second=nil, third=nil)
+        socket = peer.socket
         case message
         when "keep-alive"
             data = "\x00\x00\x00\x00"
@@ -98,6 +101,7 @@ class Comm
         end
         #p data
         socket.write data
+        peer.commSent = Time.now
     end
 
 

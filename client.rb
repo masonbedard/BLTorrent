@@ -32,13 +32,13 @@ class Client
       p "Unable to connect to: #{peer}\n"
       connectToPeer
     end
-    on_event(self, :peerDisconnect) do |c, peer| 
-      p "Peer removed: #{peer}\n"
+    on_event(self, :peerDisconnect) do |c, peer, reason| 
+      p "Peer removed: #{peer} #{reason}\n"
       peer.socket.close
       peer.connected = false
       connectToPeer
     end
-    10.times { connectToPeer }
+    1.times { connectToPeer }
     talkToPeers
   end
 
@@ -50,8 +50,9 @@ class Client
         begin
           Timeout::timeout(5) {
             peer.socket = TCPSocket.new(peer.ip, peer.port)
-            Comm::sendHandshake(peer.socket, @metainfo.infoHash, @peerId)
+            Comm::sendHandshake(peer, @metainfo.infoHash, @peerId)
             handshake = peer.socket.read 68
+            peer.commRecv = Time.now
             #TODO add check for info hash
             peer.connected = true
             send_event(:peerConnected, peer)
@@ -67,6 +68,7 @@ class Client
   def talkToPeers
     while true do # Change to make sure there is data to download eventually....
       fds = @peers.shuffle.select { |peer| peer.connected }.map { |peer| peer.socket }
+      puts 
       puts "Peers connected: #{fds.length}" if true#(rand *100)%100 > 90
       fds.each { |fd|
         if fd.closed? then
@@ -74,61 +76,72 @@ class Client
         end
       }
       ready, = IO.select(fds, nil, nil, 1)
-      if ready.nil? then
-        next
-      end
-      ready.each do |fd|
-        peerIndex = @peers.index { |peer| peer.socket == fd }
-        peer = @peers[peerIndex]
-        puts "#{peer}"
-        data = fd.recv(4)# find length of message
-        if data.nil? or data.empty? then
-          send_event(:peerDisconnect, peer)
-          next
-        end
-        len = data.unpack("H*")[0].to_i(16)
-        if len > 0 then
-          message = ""
-          begin
-            while message.length < len
-              Timeout::timeout(2) {
-                data = fd.recv(len - message.length)
-                if data.nil? or data.empty? then
-                  send_event(:peerDisconnect, peer)
-                  next
-                end
-                message.concat data
-              }
-            end 
-            puts "Length: #{len} got: #{message.length}"
-            parseMessage(message, peerIndex, len)
-          rescue Timeout::Error
-            send_event(:peerDisconnect, peer)
+      if not ready.nil? then
+        ready.each do |fd|
+          peerIndex = @peers.index { |peer| peer.socket == fd }
+          peer = @peers[peerIndex]
+          puts "#{peer}"
+          peer.commRecv = Time.now
+          data = fd.recv(4)# find length of message
+          if data.nil? or data.empty? then
+            send_event(:peerDisconnect, peer, "Peer closed connection")
+            next
           end
-        else 
-          puts "Data: #{data} nil? #{data.nil?}"
-          puts "Got keep alive #{Time.now} Len: #{len} Closed: #{fd.closed?}"
+          len = data.unpack("H*")[0].to_i(16)
+          if len > 0 then
+            message = ""
+            begin
+              while message.length < len
+                Timeout::timeout(3) {
+                  data = fd.recv(len - message.length)
+                  if data.nil? or data.empty? then
+                    send_event(:peerDisconnect, peer, "Didnt recv full message")
+                    next
+                  end
+                  message.concat data
+                }
+              end 
+              puts "Length: #{len} got: #{message.length}"
+              parseMessage(message, peerIndex, len)
+            rescue Timeout::Error
+              send_event(:peerDisconnect, peer, "Timeout while getting data")
+            end
+          else 
+            puts "Data: #{data} nil? #{data.nil?}"
+            puts "Got keep alive #{Time.now} Len: #{len} Closed: #{fd.closed?}"
+          end
         end
       end
-      i = 0
-      while (i < @pieces.length)
-        piece = @pieces[i]
-        if not piece.complete? then
-          peers_with_piece = @peers.select { |peer| peer.connected && peer.pieces[i]}
-          #p "peers with piece: #{peers_with_piece.length}"
-          peers_with_piece.each { |peer|
-            if not peer.am_interested then
-              Comm::sendMessage(peer.socket, "interested")
-              p "***********Sending interested to #{peer.to_s}"
-              peer.am_interested = true
-            end
-            if not peer.is_choking then
-              Comm::sendMessage(peer.socket, "request", i, 0)
-            end
-          }
+      # i = 0
+      # while (i < @pieces.length)
+      #   piece = @pieces[i]
+      #   if not piece.complete? then
+      #     peers_with_piece = @peers.select { |peer| peer.connected && peer.pieces[i] && (not peer.didRequest) }
+      #     #p "peers with piece: #{peers_with_piece.length}"
+      #     peers_with_piece.each { |peer|
+      #       if not peer.am_interested then
+      #         Comm::sendMessage(peer, "interested")
+      #         p "***********Sending interested to #{peer.to_s}"
+      #         peer.am_interested = true
+      #       end
+      #       if not peer.is_choking then
+      #         Comm::sendMessage(peer, "request", i, 0)
+      #         peer.didRequest = true
+      #       end
+      #     }
+      #   end
+      #   i = i+1
+      # end
+      @peers.each { |peer| # disconnect if nothing recv
+        if peer.connected && Time.now-120 > peer.commRecv then
+          send_event(:peerDisconnect, peer, "No connectivity seen")
         end
-        i = i+1
-      end
+      }
+      @peers.each { |peer| # send keep alives
+        if peer.connected && Time.now-110 > peer.commSent then
+          Comm.sendMessage(peer, "keep-alive")
+        end
+      }
     end
   end
 

@@ -6,6 +6,8 @@ require './event'
 require './piece.rb'
 require './request.rb'
 
+Thread.abort_on_exception = true
+
 filename = ARGV[0]
  
 metainfo = Metainfo::parseFile(filename)
