@@ -5,7 +5,7 @@ require './event'
 class Client
   include Event
 
-  event :peerConnected, :peerTimeout
+  event :peerConnected, :peerTimeout, :peerDisconnect
 
   def initialize(metainfo)
     @metainfo = metainfo
@@ -13,6 +13,7 @@ class Client
 
     response = Comm::makeTrackerRequest(@metainfo.announce,@metainfo.infoHash, @peerId)
     @peers = Metainfo::parseTrackerResponse(response)
+    puts "Num peers: #{@peers.length}"
     on_event(self, :peerConnected) do |c, peer| 
       puts "connected to: #{peer}\n"
     end
@@ -20,7 +21,13 @@ class Client
       p "Unable to connect to: #{peer}\n"
       connectToPeer
     end
-    5.times { connectToPeer }
+    on_event(self, :peerDisconnect) do |c, peer| 
+      p "Peer removed: #{peer}\n"
+      peer.socket.close
+      peer.connected = false
+      connectToPeer
+    end
+    10.times { connectToPeer }
     talkToPeers
   end
 
@@ -30,13 +37,15 @@ class Client
       peer.tried = true
       Thread.new do
         begin
-          peer.socket = TCPSocket.new(peer.ip, peer.port)
-          Comm::sendHandshake(peer.socket, @metainfo.infoHash, @peerId)
-          handshake = peer.socket.read 68
-          #TODO add check for info hash
-          peer.connected = true
-          send_event(:peerConnected, peer)
-        rescue Errno::ETIMEDOUT
+          Timeout::timeout(5) {
+            peer.socket = TCPSocket.new(peer.ip, peer.port)
+            Comm::sendHandshake(peer.socket, @metainfo.infoHash, @peerId)
+            handshake = peer.socket.read 68
+            #TODO add check for info hash
+            peer.connected = true
+            send_event(:peerConnected, peer)
+          }
+        rescue Errno::ETIMEDOUT, Timeout::Error
           send_event(:peerTimeout, peer)
         end
       end
@@ -46,7 +55,8 @@ class Client
 
   def talkToPeers
     while true do # Change to make sure there is data to download eventually....
-      fds = @peers.select { |peer| peer.connected }.map { |peer| peer.socket }
+      fds = @peers.shuffle.select { |peer| peer.connected }.map { |peer| peer.socket }
+      puts "Peers connected: #{fds.length}" if true#(rand *100)%100 > 90
       fds.each { |fd|
         if fd.closed? then
           puts "Closed"
@@ -59,21 +69,32 @@ class Client
       ready.each do |fd|
         peer = @peers[@peers.index { |peer| peer.socket == fd}]
         puts "#{peer}"
-        data = fd.read(4)# find length of message
-        if data.nil?
-          peer.connected = false
-          puts "Peer disconnected #{peer}"
+        data = fd.recv(4)# find length of message
+        if data.nil? or data.empty? then
+          send_event(:peerDisconnect, peer)
           next
         end
         len = data.unpack("H*")[0].to_i(16)
         if len > 0 then
           message = ""
-          while message.length < len
-            message.concat fd.read(len - message.length)
-          end 
-          puts "Length: #{len} got: #{message.length}"
+          begin
+            while message.length < len
+              Timeout::timeout(2) {
+                data = fd.recv(len - message.length)
+                if data.nil? or data.empty? then
+                  send_event(:peerDisconnect, peer)
+                  next
+                end
+                message.concat data
+              }
+            end 
+            puts "Length: #{len} got: #{message.length}"
+          rescue Timeout::Error
+            send_event(:peerDisconnect, peer)
+          end
           # puts message.unpack("H*")
         else 
+          puts "Data: #{data} nil? #{data.nil?}"
           puts "Got keep alive #{Time.now} Len: #{len} Closed: #{fd.closed?}"
         end
       end
