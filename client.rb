@@ -20,7 +20,7 @@ class Client
       p "Unable to connect to: #{peer}\n"
       connectToPeer
     end
-    5.times { connectToPeer }
+    30.times { connectToPeer }
     talkToPeers
   end
 
@@ -57,7 +57,8 @@ class Client
         next
       end
       ready.each do |fd|
-        peer = @peers[@peers.index { |peer| peer.socket == fd}]
+        peerIndex = @peers.index { |peer| peer.socket == fd }
+        peer = @peers[peerIndex]
         puts "#{peer}"
         data = fd.read(4)# find length of message
         if data.nil?
@@ -73,11 +74,70 @@ class Client
           end 
           puts "Length: #{len} got: #{message.length}"
           # puts message.unpack("H*")
+          parseMessage(message, peerIndex, len)
         else 
           puts "Got keep alive #{Time.now} Len: #{len} Closed: #{fd.closed?}"
         end
       end
     end
   end
+
+   def parseMessage(message, peerIndex, length)
+    case message[0]
+    when "\x00"
+        p "choke"
+        @peers[peerIndex].is_choking = true
+    when "\x01"
+        p "unchoke"
+        @peers[peerIndex].is_choking = false
+    when "\x02"
+        p "interested"
+        @peers[peerIndex].is_interested = true
+    when "\x03"
+        p "not interested"
+        @peers[peerIndex].is_interested = false
+    when "\x04"
+        p "have"
+        pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
+        @peers[peerIndex].pieces[pieceIndex] = true
+        #p pieceIndex
+    when "\x05"
+        p "bitfield"
+        i = 1
+        bitmap = ""
+        while (i < length) 
+            p "piece number #{i}"
+            p message[i].unpack("H*")[0].to_i(16).to_s(2)
+            bitmap += message[i].unpack("H*")[0].to_i(16).to_s(2)
+            i += 1
+        end
+        bitmapLen = bitmap.length
+        i = 0
+        while (i < bitmapLen)
+            if bitmap[i] == "1"
+                @peers[peerIndex].pieces[i] = true
+            end
+            i += 1
+        end
+        #p @peers[peerIndex].pieces
+    when "\x06"
+        p "request"
+        pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
+        offset = message[5..8].unpack("H*")[0].to_i(16)
+        length = message[9..12].unpack("H*")[0].to_i(16)
+        p pieceIndex
+        p offset
+        p length
+    when "\x07"
+        p "piece"
+        pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
+        offset = message[5..8].unpack("H*")[0].to_i(16)
+    when "\x08"
+        p "cancel"
+    when "\x09"
+        p "port"
+    end
+end
+
 
 end
