@@ -2,6 +2,16 @@ require './metainfo'
 require 'socket'
 require './event'
 
+def genPiecesArray(pieceLength, numPieces) 
+    pieces = Array.new(numPieces)
+    i = 0
+    while (i < numPieces)
+        pieces[i] = Piece.new(pieceLength)
+        i += 1
+    end
+    return pieces
+end
+
 class Client
   include Event
 
@@ -10,6 +20,7 @@ class Client
   def initialize(metainfo)
     @metainfo = metainfo
     @peerId = "BLT--#{Time::now.to_i}--#{Process::pid}BLT"[0...20]
+    @pieces = genPiecesArray(@metainfo.pieceLength, @metainfo.pieces.size)
 
     response = Comm::makeTrackerRequest(@metainfo.announce,@metainfo.infoHash, @peerId)
     @peers = Metainfo::parseTrackerResponse(response)
@@ -90,11 +101,10 @@ class Client
               }
             end 
             puts "Length: #{len} got: #{message.length}"
+            parseMessage(message, peerIndex, len)
           rescue Timeout::Error
             send_event(:peerDisconnect, peer)
           end
-          # puts message.unpack("H*")
-          parseMessage(message, peerIndex, len)
         else 
           puts "Data: #{data} nil? #{data.nil?}"
           puts "Got keep alive #{Time.now} Len: #{len} Closed: #{fd.closed?}"
@@ -127,7 +137,8 @@ class Client
         i = 1
         bitmap = ""
         while (i < length) 
-            p "piece number #{i}"
+            p "byte number #{i}"
+            p message[i]
             p message[i].unpack("H*")[0].to_i(16).to_s(2)
             bitmap += message[i].unpack("H*")[0].to_i(16).to_s(2)
             i += 1
@@ -140,21 +151,28 @@ class Client
             end
             i += 1
         end
-        #p @peers[peerIndex].pieces
     when "\x06"
         p "request"
         pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
         offset = message[5..8].unpack("H*")[0].to_i(16)
         length = message[9..12].unpack("H*")[0].to_i(16)
-        p pieceIndex
-        p offset
-        p length
+        @peers[peerIndex].requests.unshift(Request.new(pieceIndex, offset, length))
     when "\x07"
         p "piece"
         pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
         offset = message[5..8].unpack("H*")[0].to_i(16)
+        @pieces[pieceIndex].data[offset..(offset + @metainfo.pieceLength)] = message[6..message.length]
     when "\x08"
         p "cancel"
+        pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
+        offset = message[5..8].unpack("H*")[0].to_i(16)
+        length = message[9..12].unpack("H*")[0].to_i(16)
+        index = @pieces.index { |request| 
+            request.pieceIndex == pieceIndex &&
+            request.offset == offset &&
+            request.length == length
+        }
+        @pieces.delete_at(index) if index != nil
     when "\x09"
         p "port"
     end

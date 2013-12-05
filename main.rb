@@ -3,9 +3,11 @@ require './metainfo.rb'
 require './comm.rb'
 require './peer.rb'
 require './event'
+require './piece.rb'
+require './request.rb'
 
 filename = ARGV[0]
-
+ 
 metainfo = Metainfo::parseFile(filename)
 
 client = Client.new(metainfo)
