@@ -13,7 +13,7 @@ end
 
 class Comm
 
-    def self.makeTrackerRequest(announceUrl, infoHash, peerId);
+    def self.makeTrackerRequest(announceUrl, infoHash, peerId)
         uri = URI.parse(announceUrl)
         params = Hash.new()
         params["info_hash"] = infoHash

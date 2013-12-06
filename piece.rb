@@ -3,37 +3,52 @@ class Piece
   def initialize(pieceLength)
     @pieceLength = pieceLength
     @data = "0" * pieceLength
-    @marked = {}
+    @blocks = {}
+    @requested = {}
     @verified = false
   end
 
   def writeData(offset, data)
     @data[offset...(offset + data.length)] = data
-    i = offset
-    while i < (offset + data.length)
-      @marked[i] = true
-      i = i + 1
-    end
+    @blocks[offset] = data.length
   end
 
   def complete?
-    @marked.keys.length == @pieceLength and @marked.key(false).nil?
+    index = 0
+    while i < @pieceLength 
+      x = @blocks[i]
+      if x.nil?
+        return false
+      end
+      index += x
+    end
+    return index == @pieceLength
   end
 
   def reset!
-    @data = "0" * pieceLength
-    @marked = [false] * pieceLength
+    @data = "0" * @pieceLength
+    @blocks = {}
   end
 
   def valid?(hash)
-    return true if verified
+    return true if @verified
     d = Digest::SHA1.digest @data
 
     if hash == d then
-      verified = true
+      @verified = true
       true
     else 
       false
     end 
+  end
+
+  def getSection
+    offset = 0
+    while @blocks[offset]
+      offset += @blocks[offset]
+    end
+    n = @blocks.keys.sort.select {|x| x > offset}[0]
+    @requested[offset] = [[n, 2**14].min, Time.now]
+    return offset, [n-offset, 2**14].min
   end
 end

@@ -19,6 +19,7 @@ class Client
 
   def initialize(metainfo)
     @metainfo = metainfo
+    @rarity = {}
     @peerId = "BLT--#{Time::now.to_i}--#{Process::pid}BLT"[0...20]
     @pieces = genPiecesArray(@metainfo.pieceLength, @metainfo.pieces.size)
     p "done"
@@ -148,66 +149,72 @@ class Client
    def parseMessage(message, peerIndex, length)
     case message[0]
     when "\x00"
-        p "choke"
-        @peers[peerIndex].is_choking = true
+      p "choke"
+      @peers[peerIndex].is_choking = true
     when "\x01"
-        p "unchoke"
-        @peers[peerIndex].is_choking = false
+      p "unchoke"
+      @peers[peerIndex].is_choking = false
     when "\x02"
-        p "interested"
-        @peers[peerIndex].is_interested = true
+      p "interested"
+      @peers[peerIndex].is_interested = true
     when "\x03"
-        p "not interested"
-        @peers[peerIndex].is_interested = false
+      p "not interested"
+      @peers[peerIndex].is_interested = false
     when "\x04"
-        p "have"
-        pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
-        @peers[peerIndex].pieces[pieceIndex] = true
-        #p pieceIndex
+      p "have"
+      pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
+      if @rarity.nil? then
+        @rarity[pieceIndex] = []
+      end
+      @rarity[pieceIndex].push(@peers[peerIndex])
+      #p pieceIndex
     when "\x05"
-        p "bitfield"
-        i = 1
-        bitmap = ""
-        while (i < length) 
-            #p "byte number #{i}"
-            #p message[i]
-            #p message[i].unpack("H*")[0].to_i(16).to_s(2)
-            bitmap += message[i].unpack("H*")[0].to_i(16).to_s(2)
-            i += 1
+      p "bitfield"
+      i = 1
+      bitmap = ""
+      while (i < length) 
+        #p "byte number #{i}"
+        #p message[i]
+        #p message[i].unpack("H*")[0].to_i(16).to_s(2)
+        bitmap += message[i].unpack("H*")[0].to_i(16).to_s(2)
+        i += 1
+      end
+      bitmapLen = bitmap.length
+      i = 0
+      while (i < bitmapLen)
+        if bitmap[i] == "1"
+          if @rarity[i].nil? then
+            @rarity[i] = []
+          end
+          @rarity[i].push(@peers[peerIndex])
         end
-        bitmapLen = bitmap.length
-        i = 0
-        while (i < bitmapLen)
-            if bitmap[i] == "1"
-                @peers[peerIndex].pieces[i] = true
-            end
-            i += 1
-        end
+        i += 1
+      end
     when "\x06"
-        p "request"
-        pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
-        offset = message[5..8].unpack("H*")[0].to_i(16)
-        length = message[9..12].unpack("H*")[0].to_i(16)
-        @peers[peerIndex].requests.unshift(Request.new(pieceIndex, offset, length))
+      p "request"
+      pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
+      offset = message[5..8].unpack("H*")[0].to_i(16)
+      length = message[9..12].unpack("H*")[0].to_i(16)
+      @peers[peerIndex].requests.unshift(Request.new(pieceIndex, offset, length))
     when "\x07"
-        p "piece"
-        pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
-        offset = message[5..8].unpack("H*")[0].to_i(16)
-        data = message[6..message.length]
-        @pieces[pieceIndex].writeData(offset, data)
+      p "piece"
+      pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
+      offset = message[5..8].unpack("H*")[0].to_i(16)
+      data = message[6..message.length]
+      @pieces[pieceIndex].writeData(offset, data)
     when "\x08"
-        p "cancel"
-        pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
-        offset = message[5..8].unpack("H*")[0].to_i(16)
-        length = message[9..12].unpack("H*")[0].to_i(16)
-        index = @pieces.index { |request| 
-            request.pieceIndex == pieceIndex &&
-            request.offset == offset &&
-            request.length == length
-        }
-        @pieces.delete_at(index) if index != nil
+      p "cancel"
+      pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
+      offset = message[5..8].unpack("H*")[0].to_i(16)
+      length = message[9..12].unpack("H*")[0].to_i(16)
+      index = @pieces.index { |request| 
+        request.pieceIndex == pieceIndex &&
+        request.offset == offset &&
+        request.length == length
+      }
+      @pieces.delete_at(index) if index != nil
     when "\x09"
-        p "port"
+      p "port"
     end
   end
 
