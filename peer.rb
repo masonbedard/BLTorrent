@@ -1,8 +1,21 @@
+require './event'
+require './client'
+require 'timeout'
+
+def getHex(number, padding)
+  return [number.to_s(16).rjust(padding, '0')].pack("H*")
+end
+
 class Peer
+  include Event
+
+  event :noActivity
+
   attr_accessor :ip, :port, :socket, :connected, :am_choking, :am_interested, 
-                :is_choking, :is_interested, :tried, :requests, :didRequest, 
-                :commSent, :commRecv
-  def initialize(ip, port)
+                :is_choking, :is_interested, :connecting, :requests, 
+                :commSent, :commRecv, :pendingRequests, :blacklisted
+  def initialize(client, ip, port)
+    @client = client
     @ip = ip
     @port = port
     @socket = nil
@@ -11,15 +24,266 @@ class Peer
     @am_interested = false
     @is_choking = true
     @is_interested = false
-    @tried = false
+    @connecting = false
     @requests = []
-    @didRequest = false
-    @isDownloading = false
     @commSent = nil
     @commRecv = nil
+    @pendingRequests = [] # array of pending [piece index, offset, len]
+    @listenThread = nil
+    @blacklisted = false
+    @havePieces = {}
   end
 
   def to_s
     "Peer: <#{@ip}:#{@port} Connected: #{@connected}>"
+  end
+
+  def sendHandshake(infoHash, peerId)
+    @connecting = true
+    Thread.new {
+      data = "\x13BitTorrent protocol\x00\x00\x00\x00\x00\x00\x00\x00#{infoHash}#{peerId}"
+      
+      begin 
+        Timeout::timeout(10) {
+          @socket = TCPSocket.new(@ip, @port)
+          @socket.write data
+          handshake = @socket.read 68 # TODO add check for info hash
+        }
+        @client.send_event(:peerConnect, self)
+        @commSent = Time.now
+        @commRecv = Time.now 
+        @connected = true
+        @connecting = false
+
+        @listenThread = Thread.new { 
+          p "Listen thread started for #{self}"
+          while @connected do 
+            listenForMessages 
+          end 
+        }
+        on_event(self, :noActivity) {
+          p "eventh"
+          @listenThread.terminate
+          disconnect("No connectivity seen")
+        }
+      rescue Errno::ECONNRESET, Timeout::Error
+        @blacklisted = true
+        @connecting = false
+        @client.send_event(:peerTimeout, self)
+      end 
+    }
+  end
+
+  def disconnect(reason)
+    begin
+      @client.send_event(:peerDisconnect, self, reason)
+      @blacklisted = true
+      @connected = false
+      @socket.close
+    rescue Exception => e
+      p "Exception in disconnect #{e}"
+    end
+  end
+
+  def listenForMessages
+    data = ""
+    while data.length < 4 do
+      data = @socket.recv(4 - data.length) # block until we get 4 bytes
+      if data.nil? or data.empty? then # then called fin on us, those bitches
+        disconnect("Peer closed connection")
+        return
+      end
+    end
+
+    @commRecv = Time.now # got a message from peer
+    len = data.unpack("H*")[0].to_i(16)
+    if len > 0 then
+      message = ""
+      begin
+        while message.length < len
+          Timeout::timeout(3) {
+            data = @socket.recv(len - message.length)
+            if data.nil? or data.empty? then
+              disconnect("Peer closed connection")
+              return
+            end
+            message.concat data
+          }
+        end 
+        p "Length: #{len} got: #{message.length}"
+        parseMessage(message)
+      rescue Timeout::Error
+        disconnect("Timeout while getting data")
+        return
+      end
+    else 
+      p "Got keep alive from #{self}"
+    end
+  end
+
+  def sendMessage(type, first=nil, second=nil, third=nil)
+    p "sending message of type #{type}"
+    data = createMessage(type, first, second, third)
+
+    case type
+    when :keepalive
+      socket.write data
+    when :choke
+      @am_choking = true
+      socket.write data
+    when :unchoke
+      @am_choking = false
+      socket.write data
+    when :interested
+      @am_interested = true
+      socket.write data
+    when :uninterested
+      @am_interested = false
+      socket.write data
+    when :have, :bitfield, :piece, :piece, :cancel, :port
+      socket.write data
+    when :request
+      pendingRequests.push [first, second, third]
+
+      socket.write data
+    else
+      raise "No message of type #{type}"
+    end
+    @commSent = Time.now
+  end
+
+  def createMessage(type, first=nil, second=nil, third=nil)
+    case type
+    when :keepalive
+      data = "\x00\x00\x00\x00"
+    when :choke
+      data = "\x00\x00\x00\x01\x00"
+    when :unchoke
+      data = "\x00\x00\x00\x01\x01"
+    when :interested
+      data = "\x00\x00\x00\x01\x02"
+    when :notinterested
+      data = "\x00\x00\x00\x01\x03"
+    when :have
+      data = "\x00\x00\x00\x05\x04"
+      data += getHex(first, 8)
+    when :bitfield
+      bitfield = ""
+      for piece in first
+        if piece.possessed then
+          bitfield += "1"
+        else
+          bitfield += "0"
+        end
+      end
+      i = bitfield.size
+      while (i % 8) != 0
+        bitfield += "0"
+        i += 1
+      end
+      bitfieldValue = bitfield.to_i(2)
+      len = 1 + (bitfieldValue.to_s(16).size / 2)
+      data = getHex(len, 8)
+      data += "\x05"
+      data += getHex(bitfieldValue, 0)
+    when :request
+      data = "\x00\x00\x00\x0d\x06"
+      data += getHex(first, 8)
+      data += getHex(second, 8)
+      data += getHex(third, 8)
+    when :piece
+      len = 9 + third.size
+      data = getHex(len, 8)
+      data += "\x07"
+      data += getHex(first, 8)
+      data += getHex(second, 8)
+      data += getHex(third, 0)
+    when :cancel
+      data = "\x00\x00\x00\x0d\x08"
+      data += getHex(first, 8)
+      data += getHex(second, 8)
+      data += getHex(third, 8)
+    when :port
+      data = "\x00\x00\x00\x03\x09"
+      data += getHex(first, 8)
+    else
+      raise "No message of type #{type}"
+    end
+    data
+  end
+
+  def parseMessage(message)
+    case message[0]
+    when "\x00"
+      p "choke from #{self}"
+      @is_choking = true
+    when "\x01"
+      p "unchoke from #{self}"
+      @is_choking = false
+    when "\x02"
+      p "interested from #{self}"
+      @is_interested = true
+    when "\x03"
+      p "uninterested from #{self}"
+      @is_interested = false
+    when "\x04"
+      pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
+      p "have from #{self} for piece #{pieceIndex}"
+      # if @rarity.nil? then
+      #   @rarity[pieceIndex] = []
+      # end
+      # @rarity[pieceIndex].push(@peers[peerIndex])
+    when "\x05"
+      p "bitmap from #{self}"
+      i = 1
+      bitmap = ""
+      # TODO
+      # while (i < length) 
+      #   #p "byte number #{i}"
+      #   #p message[i]
+      #   #p message[i].unpack("H*")[0].to_i(16).to_s(2)
+      #   bitmap += message[i].unpack("H*")[0].to_i(16).to_s(2)
+      #   i += 1
+      # end
+      # bitmapLen = bitmap.length
+      # i = 0
+      # while (i < bitmapLen)
+      #   if bitmap[i] == "1"
+      #     if @rarity[i].nil? then
+      #       @rarity[i] = []
+      #     end
+      #     @rarity[i].push(@peers[peerIndex])
+      #   end
+      #   i += 1
+      # end
+    when "\x06"
+      p "request from #{self}"
+      # TODO
+      # pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
+      # offset = message[5..8].unpack("H*")[0].to_i(16)
+      # length = message[9..12].unpack("H*")[0].to_i(16)
+      # @peers[peerIndex].requests.unshift(Request.new(pieceIndex, offset, length))
+    when "\x07"
+      p "piece from #{self}"
+      # TODO
+      # pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
+      # offset = message[5..8].unpack("H*")[0].to_i(16)
+      # data = message[6..message.length]
+      # @pieces[pieceIndex].writeData(offset, data)
+    when "\x08"
+      p "cancel from #{self}"
+      # TODO
+      # pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
+      # offset = message[5..8].unpack("H*")[0].to_i(16)
+      # length = message[9..12].unpack("H*")[0].to_i(16)
+      # index = @pieces.index { |request| 
+      #   request.pieceIndex == pieceIndex &&
+      #   request.offset == offset &&
+      #   request.length == length
+      # }
+      # @pieces.delete_at(index) if index != nil
+    when "\x09"
+      p "port from #{self}"
+    end
   end
 end

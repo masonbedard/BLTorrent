@@ -55,7 +55,7 @@ class Metainfo
     while (i<peersLen) do
       ip = "#{peers[i]}.#{peers[i+1]}.#{peers[i+2]}.#{peers[i+3]}"
       port = peers[i+4] * 256 + peers[i+5]
-      result.push(Peer.new(ip, port))
+      result.push([ip, port])
       i += 6
     end
     return result

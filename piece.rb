@@ -1,16 +1,21 @@
 class Piece
   attr_reader :data
-  def initialize(pieceLength)
+  def initialize(pieceLength, hash)
     @pieceLength = pieceLength
     @data = "0" * pieceLength
     @blocks = {}
     @requested = {}
     @verified = false
+    @hash = hash
   end
 
   def writeData(offset, data)
+    p "**************got data"
     @data[offset...(offset + data.length)] = data
     @blocks[offset] = data.length
+    if complete? then
+      valid?
+    end
   end
 
   def complete?
@@ -30,11 +35,11 @@ class Piece
     @blocks = {}
   end
 
-  def valid?(hash)
+  def valid?
     return true if @verified
     d = Digest::SHA1.digest @data
 
-    if hash == d then
+    if @hash == d then
       @verified = true
       true
     else 
@@ -48,7 +53,12 @@ class Piece
       offset += @blocks[offset]
     end
     n = @blocks.keys.sort.select {|x| x > offset}[0]
-    @requested[offset] = [[n, 2**14].min, Time.now]
-    return offset, [n-offset, 2**14].min
+    if n.nil? then
+      @requested[offset] = [2**14, Time.now]
+      return offset, 2**14
+    else
+      @requested[offset] = [[n, 2**14].min, Time.now]
+      return offset, [n-offset, 2**14].min
+    end
   end
 end
