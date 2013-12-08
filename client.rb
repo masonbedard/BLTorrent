@@ -5,9 +5,14 @@ require './event'
 class Client
   include Event
 
+  attr_accessor :rarity, :peers
+
   event :peerConnect, :peerTimeout, :peerDisconnect
 
   def initialize(metainfo)
+    @piecesDownloaded = 0
+    @currentPieces = []
+    @desiredPieces = []
     @metainfo = metainfo
     @rarity = {}
     @peerId = "BLT--#{Time::now.to_i}--#{Process::pid}BLT"[0...20]
@@ -29,8 +34,8 @@ class Client
     end
     on_event(self, :peerDisconnect) do |c, peer, reason| 
       p "Peer removed: #{peer} #{reason}\n"
-      peer.socket.close
       peer.connected = false
+      peer.socket.close
       connectToPeer
     end
     10.times { connectToPeer }
@@ -58,17 +63,101 @@ class Client
   def talkToPeers
     while true do # Change to make sure there is data to download eventually....
 
-      @peers.each { |peer| # disconnect if nothing recv in past 2 minutes
-        if peer.connected && Time.now-120 > peer.commRecv then
-          p "time"
-          peer.send_event(:noActivity)
+      if @desiredPieces.size < 5 && @piecesDownloaded > 4 then
+        sortedRareIndices = @rarity.keys.sort { |x,y|
+          @rarity[x].size <=> @rarity[y].size 
+        }
+        for index in sortedRareIndices
+          if @desiredPieces.size > 4 then
+            break
+          end
+          if !@desiredPieces.include?(index) then
+            @desiredPieces.push(index)
+          end
         end
-      }
-      @peers.each { |peer| # send keep alives
-        if peer.connected && Time.now-110 > peer.commSent then
-          peer.sendMessage(:keepalive)
+      end
+
+      @peers.each { |peer|
+        if peer.connected then
+
+          if Time.now-120 > peer.commRecv then #disconnect if nothing received for over 2 minutes
+            peer.send_event(:noActivity)
+          elsif Time.now - 110 > peer.commSent then #send keep alive if you havent sent to them in almost 2 minutes
+            peer.sendMessage(:keepalive)
+          end
+
+          if !peer.is_choking then
+
+            for time in peer.requestsToTimes
+              if Time.now - time > 60 then
+                peer.requestsToTimes.delete(time)
+              end 
+            end
+
+            if peer.requestsToTimes.size > 4 then
+              next
+            end
+
+            for pieceIndex in @desiredPieces
+              if peer.havePieces.index(pieceIndex) == nil then
+                next
+              end
+              while peer.requestsToTimes.size < 5
+                offset, length = @pieces[pieceIndex].getSectionToRequest
+                if offset != nil then
+                  peer.sendMessage(:request, pieceIndex, offset, length)  #increments peer.requestsToTimes
+                else
+                  break
+                end
+              end
+              if peer.requestsToTimes.size > 4 then
+                break
+              end
+            end
+
+            if peer.requestsToTimes.size > 4 then
+              next
+            end
+
+            for pieceIndex in @currentPieces
+              if peer.havePieces.index(pieceIndex) == nil then
+                next
+              end
+              while peer.requestsToTimes.size < 5
+                offset, length = @pieces[pieceIndex].getSectionToRequest
+                if offset != nil then
+                  peer.sendMessage(:request, pieceIndex, offset, length)
+                else
+                  break
+                end
+              end
+              if peer.requestsToTimes.size > 4 then
+                break
+              end
+            end
+
+            if peer.requestsToTimes.size > 4 then
+              next
+            end
+
+            for pieceIndex in peer.havePieces
+              while peer.requestsToTimes.size < 5
+                offset, length = @pieces[pieceIndex].getSectionToRequest
+                if offset != nil then
+                  peer.sendMessage(:request, pieceIndex, offset, length)
+                  @currentPieces.push(pieceIndex)
+                else
+                  break
+                end
+              end
+              if peer.requestsToTimes.size > 4 then
+                break
+              end
+            end
+          end
         end
       }
     end
   end
+
 end

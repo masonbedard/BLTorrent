@@ -12,8 +12,8 @@ class Peer
   event :noActivity
 
   attr_accessor :ip, :port, :socket, :connected, :am_choking, :am_interested, 
-                :is_choking, :is_interested, :connecting, :requests, 
-                :commSent, :commRecv, :pendingRequests, :blacklisted
+                :is_choking, :is_interested, :connecting, :requestsToTimes, 
+                :commSent, :commRecv, :requestsFrom, :blacklisted, :havePieces
   def initialize(client, ip, port)
     @client = client
     @ip = ip
@@ -25,13 +25,13 @@ class Peer
     @is_choking = true
     @is_interested = false
     @connecting = false
-    @requests = []
+    @requestsFrom = []
+    @requestsToTimes = []
     @commSent = nil
     @commRecv = nil
-    @pendingRequests = [] # array of pending [piece index, offset, len]
     @listenThread = nil
     @blacklisted = false
-    @havePieces = {}
+    @havePieces = []
   end
 
   def to_s
@@ -54,6 +54,7 @@ class Peer
         @commRecv = Time.now 
         @connected = true
         @connecting = false
+        sendMessage(:interested)
 
         @listenThread = Thread.new { 
           p "Listen thread started for #{self}"
@@ -66,7 +67,7 @@ class Peer
           @listenThread.terminate
           disconnect("No connectivity seen")
         }
-      rescue Errno::ECONNRESET, Timeout::Error
+      rescue Errno::ECONNRESET, Timeout::Error, Errno::ECONNREFUSED
         @blacklisted = true
         @connecting = false
         @client.send_event(:peerTimeout, self)
@@ -88,7 +89,12 @@ class Peer
   def listenForMessages
     data = ""
     while data.length < 4 do
-      data = @socket.recv(4 - data.length) # block until we get 4 bytes
+      begin 
+        data = @socket.recv(4 - data.length) # block until we get 4 bytes
+      rescue Errno::ECONNRESET
+        disconnect("Peer reset connection")
+        return
+      end
       if data.nil? or data.empty? then # then called fin on us, those bitches
         disconnect("Peer closed connection")
         return
@@ -136,6 +142,7 @@ class Peer
       socket.write data
     when :interested
       @am_interested = true
+      p 'sending out shit here'
       socket.write data
     when :uninterested
       @am_interested = false
@@ -143,8 +150,8 @@ class Peer
     when :have, :bitfield, :piece, :piece, :cancel, :port
       socket.write data
     when :request
-      pendingRequests.push [first, second, third]
-
+      @requestsToTimes.push(Time.now)
+      p 'sent a request ################################################'
       socket.write data
     else
       raise "No message of type #{type}"
@@ -229,33 +236,43 @@ class Peer
     when "\x04"
       pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
       p "have from #{self} for piece #{pieceIndex}"
-      # if @rarity.nil? then
-      #   @rarity[pieceIndex] = []
-      # end
-      # @rarity[pieceIndex].push(@peers[peerIndex])
+      if @client.rarity[pieceIndex] == nil then
+        @client.rarity[pieceIndex] = []
+      end
+      peerIndex = @client.peers.index(self)
+      if !@client.rarity[pieceIndex].include?(peerIndex) then
+        @client.rarity[pieceIndex].push(peerIndex)
+      end
+      if !@havePieces.include?(pieceIndex) then
+        @havePieces.push(pieceIndex)
+      end
     when "\x05"
       p "bitmap from #{self}"
       i = 1
       bitmap = ""
-      # TODO
-      # while (i < length) 
-      #   #p "byte number #{i}"
-      #   #p message[i]
-      #   #p message[i].unpack("H*")[0].to_i(16).to_s(2)
-      #   bitmap += message[i].unpack("H*")[0].to_i(16).to_s(2)
-      #   i += 1
-      # end
-      # bitmapLen = bitmap.length
-      # i = 0
-      # while (i < bitmapLen)
-      #   if bitmap[i] == "1"
-      #     if @rarity[i].nil? then
-      #       @rarity[i] = []
-      #     end
-      #     @rarity[i].push(@peers[peerIndex])
-      #   end
-      #   i += 1
-      # end
+      messageLen = message.length
+      while (i < messageLen)
+        bitmap += message[i].unpack("H*")[0].to_i(16).to_s(2)
+        i += 1
+      end
+      bitmapLen = bitmap.length
+      i = 0
+      while (i < bitmapLen)
+        if bitmap[i] == "1"
+          if @client.rarity[i] == nil
+            @client.rarity[i] = []
+          else
+            peerIndex = @client.peers.index(self)
+            if !@client.rarity[i].include?(peerIndex) then
+              @client.rarity[i].push(peerIndex)
+            end
+          end
+          if !@havePieces.include?(i) then
+            @havePieces.push(i)
+          end
+        end
+        i += 1
+      end
     when "\x06"
       p "request from #{self}"
       # TODO

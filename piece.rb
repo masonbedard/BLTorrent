@@ -20,8 +20,8 @@ class Piece
 
   def complete?
     index = 0
-    while i < @pieceLength 
-      x = @blocks[i]
+    while index < @pieceLength 
+      x = @blocks[index]
       if x.nil?
         return false
       end
@@ -33,6 +33,7 @@ class Piece
   def reset!
     @data = "0" * @pieceLength
     @blocks = {}
+    @requested = {}
   end
 
   def valid?
@@ -47,18 +48,28 @@ class Piece
     end 
   end
 
-  def getSection
+  def getSectionToRequest
     offset = 0
     while @blocks[offset]
       offset += @blocks[offset]
     end
+    while (@requested[offset] && Time.now - @requested[offset][1] < 60) do 
+      offset += @requested[offset][0]
+      while @blocks[offset] do
+        offset += @blocks[offset]
+      end
+    end
+    if (offset == @pieceLength) then
+      return nil
+    end
     n = @blocks.keys.sort.select {|x| x > offset}[0]
     if n.nil? then
-      @requested[offset] = [2**14, Time.now]
-      return offset, 2**14
+      desiredLength = [2**14, @pieceLength - offset].min
     else
-      @requested[offset] = [[n, 2**14].min, Time.now]
-      return offset, [n-offset, 2**14].min
+      desiredLength = [2**14, n - offset].min
     end
+    @requested[offset] = [desiredLength, Time.now]
+    return offset, desiredLength
   end
 end
+
