@@ -57,13 +57,13 @@ class Peer
         sendMessage(:interested)
 
         @listenThread = Thread.new { 
-          p "Listen thread started for #{self}"
+#          p "Listen thread started for #{self}"
           while @connected do 
             listenForMessages 
           end 
         }
         on_event(self, :noActivity) {
-          p "eventh"
+#          p "eventh"
           @listenThread.terminate
           disconnect("No connectivity seen")
         }
@@ -82,7 +82,7 @@ class Peer
       @connected = false
       @socket.close
     rescue Exception => e
-      p "Exception in disconnect #{e}"
+#      p "Exception in disconnect #{e}"
     end
   end
 
@@ -107,7 +107,7 @@ class Peer
       message = ""
       begin
         while message.length < len
-          Timeout::timeout(3) {
+          Timeout::timeout(10) {
             data = @socket.recv(len - message.length)
             if data.nil? or data.empty? then
               disconnect("Peer closed connection")
@@ -116,47 +116,53 @@ class Peer
             message.concat data
           }
         end 
-        p "Length: #{len} got: #{message.length}"
+#        p "Length: #{len} got: #{message.length}"
         parseMessage(message)
       rescue Timeout::Error
         disconnect("Timeout while getting data")
         return
+      rescue Errno::ECONNRESET
+        disconnect("Peer reset connection")
+        return
       end
     else 
-      p "Got keep alive from #{self}"
+#      p "Got keep alive from #{self}"
     end
   end
 
   def sendMessage(type, first=nil, second=nil, third=nil)
-    p "sending message of type #{type}"
+#    p "sending message of type #{type}"
     data = createMessage(type, first, second, third)
-
-    case type
-    when :keepalive
-      socket.write data
-    when :choke
-      @am_choking = true
-      socket.write data
-    when :unchoke
-      @am_choking = false
-      socket.write data
-    when :interested
-      @am_interested = true
-      p 'sending out shit here'
-      socket.write data
-    when :uninterested
-      @am_interested = false
-      socket.write data
-    when :have, :bitfield, :piece, :piece, :cancel, :port
-      socket.write data
-    when :request
-      @requestsToTimes.push(Time.now)
-      p 'sent a request ################################################'
-      socket.write data
-    else
-      raise "No message of type #{type}"
+    begin
+      case type
+      when :keepalive
+        socket.write data
+      when :choke
+        @am_choking = true
+        socket.write data
+      when :unchoke
+        @am_choking = false
+        socket.write data
+      when :interested
+        @am_interested = true
+#        p 'sending out shit here'
+        socket.write data
+      when :uninterested
+        @am_interested = false
+        socket.write data
+      when :have, :bitfield, :piece, :piece, :cancel, :port
+        socket.write data
+      when :request
+        @requestsToTimes.push(Time.now)
+#        p "sent a request ################################################ piece: #{first} offset #{second}  len #{third}"
+        socket.write data
+      else
+        raise "No message of type #{type}"
+      end
+      @commSent = Time.now
+    rescue IOError => e
+      disconnect("Peer threw exception #{e}")
     end
-    @commSent = Time.now
   end
 
   def createMessage(type, first=nil, second=nil, third=nil)
@@ -222,20 +228,20 @@ class Peer
   def parseMessage(message)
     case message[0]
     when "\x00"
-      p "choke from #{self}"
+#      p "choke from #{self}"
       @is_choking = true
     when "\x01"
-      p "unchoke from #{self}"
+#      p "unchoke from #{self}"
       @is_choking = false
     when "\x02"
-      p "interested from #{self}"
+#      p "interested from #{self}"
       @is_interested = true
     when "\x03"
-      p "uninterested from #{self}"
+#      p "uninterested from #{self}"
       @is_interested = false
     when "\x04"
       pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
-      p "have from #{self} for piece #{pieceIndex}"
+#      p "have from #{self} for piece #{pieceIndex}"
       if @client.rarity[pieceIndex] == nil then
         @client.rarity[pieceIndex] = []
       end
@@ -247,7 +253,7 @@ class Peer
         @havePieces.push(pieceIndex)
       end
     when "\x05"
-      p "bitmap from #{self}"
+#      p "bitmap from #{self}"
       i = 1
       bitmap = ""
       messageLen = message.length
@@ -274,19 +280,18 @@ class Peer
         i += 1
       end
     when "\x06"
-      p "request from #{self}"
+#      p "request from #{self}"
       # TODO
       # pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
       # offset = message[5..8].unpack("H*")[0].to_i(16)
       # length = message[9..12].unpack("H*")[0].to_i(16)
       # @peers[peerIndex].requests.unshift(Request.new(pieceIndex, offset, length))
     when "\x07"
-      p "piece from #{self}"
-      # TODO
-      # pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
-      # offset = message[5..8].unpack("H*")[0].to_i(16)
-      # data = message[6..message.length]
-      # @pieces[pieceIndex].writeData(offset, data)
+      pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
+      offset = message[5..8].unpack("H*")[0].to_i(16)
+      data = message[9..message.length]
+#      p "piece from #{self} piece: #{pieceIndex} offset #{offset}"
+      @client.pieces[pieceIndex].writeData(offset, data)
     when "\x08"
       p "cancel from #{self}"
       # TODO
@@ -300,7 +305,7 @@ class Peer
       # }
       # @pieces.delete_at(index) if index != nil
     when "\x09"
-      p "port from #{self}"
+#      p "port from #{self}"
     end
   end
 end

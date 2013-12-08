@@ -30,13 +30,17 @@ class Metainfo
     pieces = info["pieces"].chars.each_slice(20).map(&:join)
 
     if info["files"] then # multiple files
-      files = info["files"]
+      files = []
+      info["files"].each { |f|
+        path = f["path"].join()
+        len = f["length"]
+        files.push [path, len]
+      }
 
-      for f in files
-        f["path"] = f["path"].join()
-      end
     else # single file
-      files = [{path: info["file"], length: info["length"]}]
+      path = info["file"]
+      len = info["length"]
+      files = [[path, len]]
     end
 
     Metainfo.new(announce, pieceLength, pieces, files, infoHash)

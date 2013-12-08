@@ -1,6 +1,7 @@
 class Piece
   attr_reader :data
-  def initialize(pieceLength, hash)
+  def initialize(client, pieceLength, hash)
+    @client = client
     @pieceLength = pieceLength
     @data = "0" * pieceLength
     @blocks = {}
@@ -10,15 +11,20 @@ class Piece
   end
 
   def writeData(offset, data)
-    p "**************got data"
     @data[offset...(offset + data.length)] = data
     @blocks[offset] = data.length
     if complete? then
-      valid?
+      if valid? then
+        @client.send_event(:pieceValid, self)
+      else
+        reset!
+        @client.send_event(:pieceInvalid, self)
+      end
     end
   end
 
   def complete?
+    return true if @verified
     index = 0
     while index < @pieceLength 
       x = @blocks[index]
@@ -62,6 +68,7 @@ class Piece
     if (offset == @pieceLength) then
       return nil
     end
+
     n = @blocks.keys.sort.select {|x| x > offset}[0]
     if n.nil? then
       desiredLength = [2**14, @pieceLength - offset].min

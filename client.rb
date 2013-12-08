@@ -1,13 +1,14 @@
 require './metainfo'
 require 'socket'
 require './event'
+require './filemanager'
 
 class Client
   include Event
 
-  attr_accessor :rarity, :peers
+  attr_accessor :rarity, :peers, :pieces, :fm
 
-  event :peerConnect, :peerTimeout, :peerDisconnect
+  event :peerConnect, :peerTimeout, :peerDisconnect, :pieceValid, :pieceInvalid
 
   def initialize(metainfo)
     @piecesDownloaded = 0
@@ -17,6 +18,7 @@ class Client
     @rarity = {}
     @peerId = "BLT--#{Time::now.to_i}--#{Process::pid}BLT"[0...20]
     @pieces = genPiecesArray(@metainfo.pieceLength, @metainfo.pieces.size)
+    @fm = FileManager.new(@metainfo.files)
     p "#{@metainfo}"
     response = Comm::makeTrackerRequest(@metainfo.announce,@metainfo.infoHash, @peerId)
     ips = Metainfo::parseTrackerResponse(response)
@@ -29,7 +31,7 @@ class Client
       puts "connected to: #{peer}\n"
     end
     on_event(self, :peerTimeout) do |c, peer| 
-      p "Unable to connect to: #{peer}\n"
+      p "Timeout connecting to: #{peer}\n"
       connectToPeer
     end
     on_event(self, :peerDisconnect) do |c, peer, reason| 
@@ -38,7 +40,19 @@ class Client
       peer.socket.close
       connectToPeer
     end
-    10.times { connectToPeer }
+    on_event(self, :pieceValid) do |c, piece|
+      p "Valid piece: #{@pieces.index(piece)}"
+      offset = @pieces.index(piece) * @metainfo.pieceLength
+      data = piece.data
+      @fm.write(data, offset)
+    end
+    on_event(self, :pieceInvalid) do |c, piece|
+      p "Invalid piece: #{@pieces.index(piece)}"
+    end
+  end
+
+  def start!
+    30.times { connectToPeer }
     talkToPeers
   end
 
@@ -46,7 +60,7 @@ class Client
     pieces = Array.new(numPieces)
     i = 0
     while (i < numPieces)
-      pieces[i] = Piece.new(pieceLength, @metainfo.pieces[i])
+      pieces[i] = Piece.new(self, pieceLength, @metainfo.pieces[i])
       i += 1
     end
     return pieces
@@ -99,7 +113,7 @@ class Client
             end
 
             for pieceIndex in @desiredPieces
-              if peer.havePieces.index(pieceIndex) == nil then
+              if peer.havePieces.index(pieceIndex).nil? then
                 next
               end
               while peer.requestsToTimes.size < 5
@@ -140,12 +154,15 @@ class Client
               next
             end
 
+            # Peer doesn't have 5 desired blocks, lets get at least 5
             for pieceIndex in peer.havePieces
               while peer.requestsToTimes.size < 5
                 offset, length = @pieces[pieceIndex].getSectionToRequest
-                if offset != nil then
+                if !offset.nil? then
                   peer.sendMessage(:request, pieceIndex, offset, length)
-                  @currentPieces.push(pieceIndex)
+                  if @currentPieces.index(pieceIndex).nil? then
+                    @currentPieces.push(pieceIndex)
+                  end
                 else
                   break
                 end
@@ -157,6 +174,7 @@ class Client
           end
         end
       }
+      sleep 0.5
     end
   end
 
