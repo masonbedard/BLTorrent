@@ -37,7 +37,7 @@ class FileManager
       lenToWrite = len-newOffset
       fd.write(data[0...lenToWrite])
       data = data[len-newOffset..data.length]
-      writeToFile(data, offset+lenToWrite)
+      write(data, offset+lenToWrite)
     end
   end
 
