@@ -38,7 +38,7 @@ class Metainfo
       }
 
     else # single file
-      path = info["file"]
+      path = info["name"]
       len = info["length"]
       files = [[path, len]]
     end
