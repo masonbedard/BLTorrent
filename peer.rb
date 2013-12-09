@@ -153,7 +153,7 @@ class Peer
       when :have, :bitfield, :piece, :piece, :cancel, :port
         socket.write data
       when :request
-        @requestsToTimes.push(Time.now)
+        @requestsToTimes.push([Time.now, first, second])
 #        p "sent a request ################################################ piece: #{first} offset #{second}  len #{third}"
         socket.write data
       else
@@ -290,6 +290,12 @@ class Peer
       pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
       offset = message[5..8].unpack("H*")[0].to_i(16)
       data = message[9..message.length]
+      for request in @requestsToTimes
+        if request[1] == pieceIndex && request[2] == offset then
+          @requestsToTimes.delete(request)
+          break
+        end
+      end
 #      p "piece from #{self} piece: #{pieceIndex} offset #{offset}"
       @client.pieces[pieceIndex].writeData(offset, data)
     when "\x08"

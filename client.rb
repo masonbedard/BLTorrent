@@ -103,7 +103,7 @@ class Client
           if !peer.is_choking then
 
             for time in peer.requestsToTimes
-              if Time.now - time > 60 then
+              if Time.now - time[0] > 60 then
                 peer.requestsToTimes.delete(time)
               end 
             end
