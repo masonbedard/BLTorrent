@@ -77,7 +77,13 @@ class Client
   def talkToPeers
     while true do # Change to make sure there is data to download eventually....
 
-      if @desiredPieces.size < 5 && @piecesDownloaded > 4 then
+      # might need to mess with this limit 10
+      # im thinking that if you can make 5 requests to peers and we
+      # might use 30 simultaneous peers for maximum
+      # then you could potentially have 150 requests out at once
+      # and if each piece is perhaps 256k and each block is 16kb
+      # then having 10 desired pieces means 160ish blocks available to request
+      if @piecesDownloaded > 4 && @desiredPieces.size < 10 then
         sortedRareIndices = @rarity.keys.sort { |x,y|
           @rarity[x].size <=> @rarity[y].size 
         }
