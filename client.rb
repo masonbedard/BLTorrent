@@ -40,6 +40,7 @@ class Client
     on_event(self, :peerDisconnect) do |c, peer, reason| 
       p "Peer removed: #{peer} #{reason}\n"
       peer.connected = false
+      peer.blacklisted = true
       peer.socket.close
       chokeAlgorithm
       connectToPeer
@@ -140,9 +141,12 @@ class Client
 
   def talkToPeers
     while true do
-      if @pieces.select { |p| p.verified == false }.length == 0 then
+      piecesLeft = @pieces.select { |p| p.verified == false }.length
+      if piecesLeft == 0 then
         send_event(:complete)
         break
+      else
+        puts piecesLeft
       end
       if Time.now - @timeOfLastChokeAlgorithm > 10 then
         chokeAlgorithm
@@ -261,7 +265,7 @@ class Client
           end
         end
       }
-      sleep 0.5
+      sleep 0.01
     end
   end
   def shutdown!

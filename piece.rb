@@ -75,9 +75,9 @@ class Piece
 
     n = @blocks.keys.sort.select {|x| x > offset}[0]
     if n.nil? then
-      desiredLength = [2**14, @pieceLength - offset].min
+      desiredLength = [2**15, @pieceLength - offset].min
     else
-      desiredLength = [2**14, n - offset].min
+      desiredLength = [2**15, n - offset].min
     end
     @requested[offset] = [desiredLength, Time.now]
     return offset, desiredLength
