@@ -57,7 +57,6 @@ class Peer
         @commRecv = Time.now 
         @connected = true
         @connecting = false
-        sendMessage(:interested)
 
         @listenThread = Thread.new { 
 #          p "Listen thread started for #{self}"
@@ -81,6 +80,7 @@ class Peer
   def disconnect(reason)
     begin
       @client.send_event(:peerDisconnect, self, reason)
+      @listenThread.terminate
       @blacklisted = true
       @connected = false
       @socket.close
@@ -296,6 +296,7 @@ class Peer
         i += 1
       end
       isSeeder?
+      sendMessage(:interested)
     when "\x06"
 #      p "request from #{self}"
       # TODO

@@ -8,7 +8,7 @@ class Client
 
   attr_accessor :rarity, :peers, :pieces, :fm, :metainfo
 
-  event :peerConnect, :peerTimeout, :peerDisconnect, :pieceValid, :pieceInvalid
+  event :peerConnect, :peerTimeout, :peerDisconnect, :pieceValid, :pieceInvalid, :complete
 
   def initialize(metainfo)
     @piecesDownloaded = 0
@@ -56,6 +56,12 @@ class Client
       offset = @pieces.index(piece) * @metainfo.pieceLength
       data = piece.data
       @fm.write(data, offset)
+      @peers.each { |peer|
+        if peer.connected then
+          index = @pieces.index(piece)
+          peer.sendMessage(:have, index)
+        end
+      }
     end
     on_event(self, :pieceInvalid) do |c, piece|
       p "Invalid piece: #{@pieces.index(piece)}"
@@ -85,9 +91,6 @@ class Client
     end
   end
 
-
-  #remember to send haves after verifying pieces
-  #remember to put hash call in a mutex
   #probably need a mutex on this function actually
   #listen on http advertised port
   #deal with sending interesteds
@@ -136,8 +139,11 @@ class Client
   end
 
   def talkToPeers
-    while true do # Change to make sure there is data to download eventually....
-
+    while true do
+      if @pieces.select { |p| p.verified == false }.length == 0 then
+        send_event(:complete)
+        break
+      end
       if Time.now - @timeOfLastChokeAlgorithm > 10 then
         chokeAlgorithm
       end
@@ -258,5 +264,13 @@ class Client
       sleep 0.5
     end
   end
-
+  def shutdown!
+    # tracker shutdown
+    @fm.close
+    @peers.each { |peer|
+      if peer.connected then
+        peer.disconnect "Client shutting down"
+      end
+    }
+  end
 end

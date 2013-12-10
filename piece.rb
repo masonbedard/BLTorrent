@@ -9,6 +9,7 @@ class Piece
     @requested = {}
     @verified = false
     @hash = hash
+    @mutex = Mutex.new
   end
 
   def writeData(offset, data)
@@ -45,14 +46,16 @@ class Piece
 
   def valid?
     return true if @verified
-    d = Digest::SHA1.digest @data
+    @mutex.synchronize {
+      d = Digest::SHA1.digest @data
 
-    if @hash == d then
-      @verified = true
-      true
-    else 
-      false
-    end 
+      if @hash == d then
+        @verified = true
+        true
+      else 
+        false
+      end 
+    }
   end
 
   def getSectionToRequest

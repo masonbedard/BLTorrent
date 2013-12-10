@@ -6,13 +6,12 @@ class FileManager
   def initialize(client)
     @client = client
     @files = client.metainfo.files
-    p @files
-    createDirsAndFiles
-    validateExisting
     @sum = 0
     for file in @files 
       @sum += file[1]
     end
+    createDirsAndFiles
+    validateExisting
   end
 
   def createDirsAndFiles

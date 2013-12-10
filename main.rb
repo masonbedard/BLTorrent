@@ -13,6 +13,10 @@ filename = ARGV[0]
 metainfo = Metainfo::parseFile(filename)
 
 client = Client.new(metainfo)
+client.on_event(self, :complete) {
+  client.shutdown! 
+  puts "Complete"
+}
 begin
   client.start!
 rescue Interrupt => e
