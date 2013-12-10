@@ -6,7 +6,7 @@ require './filemanager'
 class Client
   include Event
 
-  attr_accessor :rarity, :peers, :pieces, :fm
+  attr_accessor :rarity, :peers, :pieces, :fm, :metainfo
 
   event :peerConnect, :peerTimeout, :peerDisconnect, :pieceValid, :pieceInvalid
 
@@ -14,7 +14,11 @@ class Client
     @piecesDownloaded = 0
     @currentPieces = []
     @desiredPieces = []
+    @validPieces = []
     @metainfo = metainfo
+    @timeOfLastChokeAlgorithm = Time.now
+    @peersToUploadTo = []
+    @roundsSinceLastTime = 0
     @rarity = {}
     @peerId = "BLT--#{Time::now.to_i}--#{Process::pid}BLT"[0...20]
     @pieces = genPiecesArray(@metainfo.pieceLength, @metainfo.pieces.size)
@@ -38,10 +42,18 @@ class Client
       p "Peer removed: #{peer} #{reason}\n"
       peer.connected = false
       peer.socket.close
+      chokeAlgorithm
       connectToPeer
     end
     on_event(self, :pieceValid) do |c, piece|
       p "Valid piece: #{@pieces.index(piece)}"
+      pieceIndex = @pieces.index(piece)
+      if @desiredPieces.include?(pieceIndex) then
+        @desiredPieces.delete(pieceIndex)
+      elsif @currentPieces.include?(pieceIndex) then
+        @currentPieces.delete(pieceIndex)
+      end
+      @validPieces.push(pieceIndex)
       offset = @pieces.index(piece) * @metainfo.pieceLength
       data = piece.data
       @fm.write(data, offset)
@@ -74,25 +86,87 @@ class Client
     end
   end
 
+
+  #remember to send haves after verifying pieces
+  #remember to put hash call in a mutex
+  #probably need a mutex on this function actually
+  #listen on http port
+  #deal with sending interesteds
+  def chokeAlgorithm
+
+    @roundsSinceLastTime += 1
+
+    if @roundsSinceLastTime < 3 then
+      return
+    end
+
+    @peersToUploadTo = []
+
+    interestedUploaders = @peers.select{ |peer|
+      !peer.is_seeder && peer.is_interested && peer.bytesFromSinceLastChoking > 0
+    }
+
+    sortedInterestedUploaders = interestedUploaders.sort{ |x, y|
+      x.bytesFromSinceLastChoking <=> y.bytesFromSinceLastChoking
+    }
+
+    while (@peersToUploadTo.size < 3 && !sortedInterestedUploaders.empty?)
+      @peersToUploadTo.push(sortedInterestedUploaders.pop)
+    end
+
+    optimisticOptions = @peers.select {|peer|
+      !peer.is_seeder && !@peersToUploadTo.include?(peer)
+    }
+
+    optimisticOptions.shuffle!
+
+    if optimisticOptions != nil then
+      for option in optimisticOptions do
+        @peersToUploadTo.push(option)
+        if @peersToUploadTo.size > 3 then
+          if option.is_interested
+            break
+          end
+        end
+      end
+    end
+
+    @timeOfLastChokeAlgoritm = Time.now
+    @roundsSinceLastTime = 0
+
+  end
+
   def talkToPeers
     while true do # Change to make sure there is data to download eventually....
 
-      # might need to mess with this limit 10
-      # im thinking that if you can make 5 requests to peers and we
-      # might use 30 simultaneous peers for maximum
-      # then you could potentially have 150 requests out at once
-      # and if each piece is perhaps 256k and each block is 16kb
-      # then having 10 desired pieces means 160ish blocks available to request
+      if Time.now - @timeOfLastChokeAlgorithm > 10 then
+        chokeAlgorithm
+      end
+
+      #do we do this every loop iteration?
+      #how many of their requests should we answer?
+      for peer in @peersToUploadTo do
+        for request in peer.requestsFrom
+        end
+      end      
+
+      # requesting to others
       if @piecesDownloaded > 4 && @desiredPieces.size < 10 then
         sortedRareIndices = @rarity.keys.sort { |x,y|
           @rarity[x].size <=> @rarity[y].size 
         }
         for index in sortedRareIndices
-          if @desiredPieces.size > 4 then
+          if @desiredPieces.size > 9 then
             break
+          end
+          if @rarity[index].size == 0 || @validPieces.include?(index) then
+            next
           end
           if !@desiredPieces.include?(index) then
             @desiredPieces.push(index)
+            if @currentPieces.include?(index) then
+              @currentPieces.delete(index)
+            end
           end
         end
       end
@@ -160,13 +234,13 @@ class Client
               next
             end
 
-            # Peer doesn't have 5 desired blocks, lets get at least 5
+            # Peer doesn't have blocks from pieces we're currently working on
             for pieceIndex in peer.havePieces
               while peer.requestsToTimes.size < 5
                 offset, length = @pieces[pieceIndex].getSectionToRequest
                 if !offset.nil? then
                   peer.sendMessage(:request, pieceIndex, offset, length)
-                  if @currentPieces.index(pieceIndex).nil? then
+                  if @currentPieces.include?(pieceIndex) && !@validPieces.include?(pieceIndex) then
                     @currentPieces.push(pieceIndex)
                   end
                 else

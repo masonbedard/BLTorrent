@@ -13,7 +13,8 @@ class Peer
 
   attr_accessor :ip, :port, :socket, :connected, :am_choking, :am_interested, 
                 :is_choking, :is_interested, :connecting, :requestsToTimes, 
-                :commSent, :commRecv, :requestsFrom, :blacklisted, :havePieces
+                :commSent, :commRecv, :requestsFrom, :blacklisted, :havePieces,
+                :is_seeder
   def initialize(client, ip, port)
     @client = client
     @ip = ip
@@ -32,6 +33,8 @@ class Peer
     @listenThread = nil
     @blacklisted = false
     @havePieces = []
+    @bytesFromSinceLastChoking = 0
+    @is_seeder = false
   end
 
   def to_s
@@ -160,7 +163,7 @@ class Peer
         raise "No message of type #{type}"
       end
       @commSent = Time.now
-    rescue IOError => e
+    rescue Errno::EPIPE, IOError => e
       disconnect("Peer threw exception #{e}")
     end
   end
@@ -225,6 +228,12 @@ class Peer
     data
   end
 
+  def isSeeder?
+    if @havePieces.size == @client.metainfo.pieces.size
+      @is_seeder = true
+    end
+  end
+
   def parseMessage(message)
     case message[0]
     when "\x00"
@@ -236,9 +245,15 @@ class Peer
     when "\x02"
 #      p "interested from #{self}"
       @is_interested = true
+      if !@am_choking then
+        client.chokeAlgorithm
+      end
     when "\x03"
 #      p "uninterested from #{self}"
       @is_interested = false
+      if !@am_choking then
+        client.chokeAlgorithm
+      end
     when "\x04"
       pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
 #      p "have from #{self} for piece #{pieceIndex}"
@@ -252,6 +267,7 @@ class Peer
       if !@havePieces.include?(pieceIndex) then
         @havePieces.push(pieceIndex)
       end
+      isSeeder?
     when "\x05"
 #      p "bitmap from #{self}"
       i = 1
@@ -279,6 +295,7 @@ class Peer
         end
         i += 1
       end
+      isSeeder?
     when "\x06"
 #      p "request from #{self}"
       # TODO
@@ -290,6 +307,7 @@ class Peer
       pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
       offset = message[5..8].unpack("H*")[0].to_i(16)
       data = message[9..message.length]
+      @bytesFromSinceLastChoking += message.length
       for request in @requestsToTimes
         if request[1] == pieceIndex && request[2] == offset then
           @requestsToTimes.delete(request)
