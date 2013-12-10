@@ -14,7 +14,6 @@ class Client
     @piecesDownloaded = 0
     @currentPieces = []
     @desiredPieces = []
-    @validPieces = []
     @metainfo = metainfo
     @timeOfLastChokeAlgorithm = Time.now
     @peersToUploadTo = []
@@ -53,7 +52,6 @@ class Client
       elsif @currentPieces.include?(pieceIndex) then
         @currentPieces.delete(pieceIndex)
       end
-      @validPieces.push(pieceIndex)
       offset = @pieces.index(piece) * @metainfo.pieceLength
       data = piece.data
       @fm.write(data, offset)
@@ -90,7 +88,7 @@ class Client
   #remember to send haves after verifying pieces
   #remember to put hash call in a mutex
   #probably need a mutex on this function actually
-  #listen on http port
+  #listen on http advertised port
   #deal with sending interesteds
   def chokeAlgorithm
 
@@ -159,7 +157,7 @@ class Client
           if @desiredPieces.size > 9 then
             break
           end
-          if @rarity[index].size == 0 || @validPieces.include?(index) then
+          if @rarity[index].size == 0 || !@pieces[index].verified then
             next
           end
           if !@desiredPieces.include?(index) then
@@ -240,7 +238,7 @@ class Client
                 offset, length = @pieces[pieceIndex].getSectionToRequest
                 if !offset.nil? then
                   peer.sendMessage(:request, pieceIndex, offset, length)
-                  if @currentPieces.include?(pieceIndex) && !@validPieces.include?(pieceIndex) then
+                  if @currentPieces.include?(pieceIndex) && !@pieces[pieceIndex].verified then
                     @currentPieces.push(pieceIndex)
                   end
                 else
