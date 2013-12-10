@@ -22,7 +22,7 @@ class Client
     @rarity = {}
     @peerId = "BLT--#{Time::now.to_i}--#{Process::pid}BLT"[0...20]
     @pieces = genPiecesArray(@metainfo.pieceLength, @metainfo.pieces.size)
-    @fm = FileManager.new(@metainfo.files)
+    @fm = FileManager.new(self)
     p "#{@metainfo}"
     response = Comm::makeTrackerRequest(@metainfo.announce,@metainfo.infoHash, @peerId)
     ips = Metainfo::parseTrackerResponse(response)

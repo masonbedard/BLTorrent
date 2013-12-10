@@ -5,9 +5,10 @@ require './bencode.rb'
 require './peer.rb'
 
 class Metainfo
-  attr_accessor :announce, :pieceLength, :pieces, :files, :infoHash
+  attr_accessor :announce, :pieceLength, :pieces, :files, :infoHash, :torrentName
 
-  def initialize(announce, pieceLength, pieces, files, infoHash)
+  def initialize(torrentName, announce, pieceLength, pieces, files, infoHash)
+    @torrentName = torrentName
     @announce = announce
     @pieceLength = pieceLength
     @pieces = pieces
@@ -42,8 +43,10 @@ class Metainfo
       len = info["length"]
       files = [[path, len]]
     end
+    torrentName = filename.split("/")[-1]
+    torrentName = torrentName[0..-9] if not torrentName.index(".torrent").nil?
 
-    Metainfo.new(announce, pieceLength, pieces, files, infoHash)
+    Metainfo.new(torrentName, announce, pieceLength, pieces, files, infoHash)
   end
 
   def self.parseTrackerResponse(res)

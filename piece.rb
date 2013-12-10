@@ -1,5 +1,6 @@
 class Piece
   attr_reader :data
+  attr_accessor :verified
   def initialize(client, pieceLength, hash)
     @client = client
     @pieceLength = pieceLength
