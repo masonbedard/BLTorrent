@@ -46,6 +46,7 @@ class Client
     end
     on_event(self, :pieceValid) do |c, piece|
       p "Valid piece: #{@pieces.index(piece)}"
+      @piecesDownloaded+=1
       pieceIndex = @pieces.index(piece)
       if @desiredPieces.include?(pieceIndex) then
         @desiredPieces.delete(pieceIndex)
@@ -147,7 +148,6 @@ class Client
         for request in peer.requestsFrom
         end
       end      
-
       # requesting to others
       if @piecesDownloaded > 4 && @desiredPieces.size < 10 then
         sortedRareIndices = @rarity.keys.sort { |x,y|
@@ -157,7 +157,7 @@ class Client
           if @desiredPieces.size > 9 then
             break
           end
-          if @rarity[index].size == 0 || !@pieces[index].verified then
+          if @rarity[index].size == 0 || @pieces[index].verified then
             next
           end
           if !@desiredPieces.include?(index) then
@@ -234,11 +234,14 @@ class Client
 
             # Peer doesn't have blocks from pieces we're currently working on
             for pieceIndex in peer.havePieces
+              if @pieces[pieceIndex].verified then
+                next
+              end
               while peer.requestsToTimes.size < 5
                 offset, length = @pieces[pieceIndex].getSectionToRequest
                 if !offset.nil? then
                   peer.sendMessage(:request, pieceIndex, offset, length)
-                  if @currentPieces.include?(pieceIndex) && !@pieces[pieceIndex].verified then
+                  if @currentPieces.include?(pieceIndex) then
                     @currentPieces.push(pieceIndex)
                   end
                 else

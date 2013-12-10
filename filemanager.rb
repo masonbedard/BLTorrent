@@ -9,6 +9,10 @@ class FileManager
     p @files
     createDirsAndFiles
     validateExisting
+    @sum = 0
+    for file in @files 
+      @sum += file[1]
+    end
   end
 
   def createDirsAndFiles
@@ -34,7 +38,6 @@ class FileManager
       data = read(index * pieceLength, pieceLength)
       if not (data.nil? or data.empty?)
         if Digest::SHA1.digest(data) == hash
-          puts "valid #{index}"
           @client.pieces[index].verified=true
         end
       end
@@ -69,14 +72,10 @@ class FileManager
   end
 
   def read(offset, length)
-    sum=0
-    for file in @files 
-      sum += file[1]
-    end
     lenCount = 0
     currIndex = 0
     while lenCount + @files[currIndex][1] <= offset do
-      if lenCount + @files[currIndex][1] == sum then # last file
+      if lenCount + @files[currIndex][1] == @sum then # last file
         return ""
       end
       lenCount += @files[currIndex][1]
