@@ -6,10 +6,7 @@ class FileManager
   def initialize(client)
     @client = client
     @files = client.metainfo.files
-    @sum = 0
-    for file in @files 
-      @sum += file[1]
-    end
+
     createDirsAndFiles
     validateExisting
   end
@@ -60,6 +57,14 @@ class FileManager
       lenToWrite = len-newOffset
       fd.write(data[0...lenToWrite])
       data = data[len-newOffset..data.length]
+      while data.length > 0
+        currIndex+=1
+        fd, len = @files[currIndex]
+        lenToWrite = [data.length, len].min 
+        fd.seek(0)
+        fd.write(data[0...lenToWrite])
+        data=data[lenToWrite..data.length]
+      end
       write(data, offset+lenToWrite)
     end
   end
@@ -74,7 +79,7 @@ class FileManager
     lenCount = 0
     currIndex = 0
     while lenCount + @files[currIndex][1] <= offset do
-      if lenCount + @files[currIndex][1] == @sum then # last file
+      if currIndex = @files.length-1 then # last file
         return ""
       end
       lenCount += @files[currIndex][1]
@@ -84,15 +89,27 @@ class FileManager
 
     fd, len = @files[currIndex]
     fd.seek(newOffset)
-    if length + newOffset <= len then # writing all in this file
+    if length + newOffset <= len then # reading all in this file
       data = fd.read(length)
       data = "" if data.nil?
-    else
+    else #reading across multiple
       lenToRead = len-newOffset
       data = fd.read(lenToRead) 
       data = "" if data.nil?
       length = length - lenToRead
-      data.concat read(offset+lenToRead, length)
+      while length > 0 
+        currIndex += 1
+        if currIndex = @files.length-1 then # last file
+          return ""
+        end
+        fd, len = @files[currIndex]
+        readLen = [length, len].min
+        fd.seek(0)
+        x = fd.read readLen
+        x = "" if x.nil?
+        data.concat x
+        length = length - len
+      end
     end
     return data
   end

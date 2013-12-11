@@ -1,12 +1,15 @@
 require './metainfo'
-require 'socket'
 require './event'
 require './filemanager'
+require './tracker'
+require './piece'
+
+require 'socket'
 
 class Client
   include Event
 
-  attr_accessor :rarity, :peers, :pieces, :fm, :metainfo
+  attr_accessor :rarity, :peers, :pieces, :fm, :metainfo, :peerId, :uploadedBytes, :downloadedBytes
 
   event :peerConnect, :peerTimeout, :peerDisconnect, :pieceValid, :pieceInvalid, :complete
 
@@ -22,13 +25,12 @@ class Client
     @peerId = "BLT--#{Time::now.to_i}--#{Process::pid}BLT"[0...20]
     @pieces = genPiecesArray(@metainfo.pieceLength, @metainfo.pieces.size)
     @fm = FileManager.new(self)
-    p "#{@metainfo}"
-    response = Comm::makeTrackerRequest(@metainfo.announce,@metainfo.infoHash, @peerId)
-    ips = Metainfo::parseTrackerResponse(response)
     @peers = []
-    ips.each {|ip|
-      @peers.push(Peer.new(self, ip[0], ip[1]))
-    }
+    @downloadedBytes = 0
+    @uploadedBytes = 0
+    @tracker = Tracker.new(self)
+    @tracker.makeRequest(:started)
+    p "#{@metainfo}"
     puts "Num peers: #{@peers.length}"
     on_event(self, :peerConnect) do |c, peer| 
       puts "connected to: #{peer}\n"
@@ -47,6 +49,7 @@ class Client
     end
     on_event(self, :pieceValid) do |c, piece|
       p "Valid piece: #{@pieces.index(piece)}"
+      @downloadedBytes+=@metainfo.pieceLength
       @piecesDownloaded+=1
       pieceIndex = @pieces.index(piece)
       if @desiredPieces.include?(pieceIndex) then
@@ -150,6 +153,10 @@ class Client
       end
       if Time.now - @timeOfLastChokeAlgorithm > 10 then
         chokeAlgorithm
+      end
+
+      if Time.now - @tracker.lastRequest > @tracker.interval then
+        @tracker.makeRequest
       end
 
       #do we do this every loop iteration?
@@ -276,5 +283,6 @@ class Client
         peer.disconnect "Client shutting down"
       end
     }
+    @tracker.makeRequest(:stopped)
   end
 end

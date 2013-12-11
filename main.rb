@@ -1,10 +1,5 @@
 require './client.rb'
-require './metainfo.rb'
-require './comm.rb'
-require './peer.rb'
 require './event'
-require './piece.rb'
-require './request.rb'
 
 Thread.abort_on_exception = true
 
@@ -20,8 +15,8 @@ client.on_event(self, :complete) {
 begin
   client.start!
 rescue Interrupt => e
-  puts "here"
-  client.fm.close
+  puts "Shutting down..."
+  client.shutdown! 
 end
 
 # IN MAIN FILE NEED TO CALCULATE LENGTH OF ALL FILES

@@ -49,25 +49,6 @@ class Metainfo
     Metainfo.new(torrentName, announce, pieceLength, pieces, files, infoHash)
   end
 
-  def self.parseTrackerResponse(res)
-
-    # DEAL WITH OTHER KEYS OF RESPONSE
-    # LIKE INTERVAL AND MININTERVAL
-    
-    result = []
-    dict = BEncode::load(res)
-    peers = dict["peers"].bytes.to_a
-    peersLen = peers.length
-    i = 0
-    while (i<peersLen) do
-      ip = "#{peers[i]}.#{peers[i+1]}.#{peers[i+2]}.#{peers[i+3]}"
-      port = peers[i+4] * 256 + peers[i+5]
-      result.push([ip, port])
-      i += 6
-    end
-    return result
-  end
-
   def to_s
     "Metainfo: <Tracker: #{@announce} Num pieces: #{@pieces.length}>"
   end
