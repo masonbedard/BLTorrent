@@ -200,6 +200,7 @@ class Client
             for time in peer.requestsToTimes
               if Time.now - time[0] > 60 then
                 peer.requestsToTimes.delete(time)
+                peer.disconnect "Timeout receiving data!"
               end 
             end
 
@@ -272,7 +273,7 @@ class Client
           end
         end
       }
-      sleep 0.01
+      sleep 0.05
     end
   end
   def shutdown!

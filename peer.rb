@@ -14,7 +14,7 @@ class Peer
   attr_accessor :ip, :port, :socket, :connected, :am_choking, :am_interested, 
                 :is_choking, :is_interested, :connecting, :requestsToTimes, 
                 :commSent, :commRecv, :requestsFrom, :blacklisted, :havePieces,
-                :is_seeder
+                :is_seeder, :bytesFromSinceLastChoking
   def initialize(client, ip, port)
     @client = client
     @ip = ip
@@ -52,11 +52,11 @@ class Peer
           @socket.write data
           handshake = @socket.read 68 # TODO add check for info hash
         }
-        @client.send_event(:peerConnect, self)
         @commSent = Time.now
         @commRecv = Time.now 
         @connected = true
         @connecting = false
+        @client.send_event(:peerConnect, self)
 
         @listenThread = Thread.new { 
 #          p "Listen thread started for #{self}"
@@ -298,7 +298,7 @@ class Peer
       isSeeder?
       sendMessage(:interested)
     when "\x06"
-#      p "request from #{self}"
+      p "request from #{self}"
       # TODO
       # pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
       # offset = message[5..8].unpack("H*")[0].to_i(16)
