@@ -22,7 +22,6 @@ class FileManager
       else
         FileUtils.makedirs(dirName+path[0..path.rindex("/")])
         FileUtils.touch(dirName+path)
-        
       end
       file[0] = openFile(dirName+path)
     end

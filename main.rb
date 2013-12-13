@@ -9,7 +9,7 @@ metainfo = Metainfo::parseFile(filename)
 
 client = Client.new(metainfo)
 client.on_event(self, :complete) {
-  client.shutdown! 
+  client.shutdown!
   puts "Complete"
 }
 begin

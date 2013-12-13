@@ -24,7 +24,7 @@ class Tracker
     when "http:"
       makeHTTPReq(event)
     else
-      puts "unknown tracket type"
+      puts "unknown tracker type"
     end
   end
 

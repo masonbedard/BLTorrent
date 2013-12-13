@@ -83,6 +83,7 @@ class Peer
       @listenThread.terminate
       @blacklisted = true
       @connected = false
+      clearRequests
       @socket.close
     rescue Exception => e
 #      p "Exception in disconnect #{e}"
@@ -127,6 +128,9 @@ class Peer
       rescue Errno::ECONNRESET
         disconnect("Peer reset connection")
         return
+      rescue Errno::EBADF
+        disconnect("Bad file descriptor")
+        return
       end
     else 
 #      p "Got keep alive from #{self}"
@@ -157,7 +161,11 @@ class Peer
         socket.write data
       when :request
         @requestsToTimes.push([Time.now, first, second])
-#        p "sent a request ################################################ piece: #{first} offset #{second}  len #{third}"
+        #p "sent a request ################################################ piece: #{first} offset #{second}  len #{third}"
+        #p "to #{self}"
+        socket.write data
+      when :cancel
+        p 'CANCELING CAUSE OF END GAME THATS THE ONLY REASON WE CANCEL AT THE MOMENT WHY ELSE WOULD YOU'
         socket.write data
       else
         raise "No message of type #{type}"
@@ -234,11 +242,20 @@ class Peer
     end
   end
 
+  def clearRequests
+    for request in @requestsToTimes
+      @client.pieces[request[1]].requested[request[2]] = nil 
+    end
+    @requestsToTimes = [] # probably not necessary? or wrong?
+    p 'cleared requests'
+  end
+
   def parseMessage(message)
     case message[0]
     when "\x00"
 #      p "choke from #{self}"
       @is_choking = true
+      clearRequests
     when "\x01"
 #      p "unchoke from #{self}"
       @is_choking = false
@@ -246,13 +263,13 @@ class Peer
 #      p "interested from #{self}"
       @is_interested = true
       if !@am_choking then
-        client.chokeAlgorithm
+        @client.chokeAlgorithm
       end
     when "\x03"
 #      p "uninterested from #{self}"
       @is_interested = false
       if !@am_choking then
-        client.chokeAlgorithm
+        @client.chokeAlgorithm
       end
     when "\x04"
       pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
@@ -314,6 +331,11 @@ class Peer
           @requestsToTimes.delete(request)
           break
         end
+      end
+      if @client.endGameMode then
+        Thread.new {
+          @client.sendCancelsEndGame(pieceIndex, offset, message.length - 8)
+        }
       end
 #      p "piece from #{self} piece: #{pieceIndex} offset #{offset}"
       @client.pieces[pieceIndex].writeData(offset, data)

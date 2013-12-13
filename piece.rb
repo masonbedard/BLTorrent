@@ -1,6 +1,6 @@
 class Piece
   attr_reader :data
-  attr_accessor :verified
+  attr_accessor :verified, :requested
   def initialize(client, pieceLength, hash)
     @client = client
     @pieceLength = pieceLength
@@ -10,14 +10,19 @@ class Piece
     @verified = false
     @hash = hash
     @mutex = Mutex.new
+    @hasAlreadyHappened = false
   end
 
   def writeData(offset, data)
     @data[offset...(offset + data.length)] = data
     @blocks[offset] = data.length
+    @requested[offset] = nil    # added this
     if complete? then
       if valid? then
-        @client.send_event(:pieceValid, self)
+        if !@hasAlreadyHappened
+          @hasAlreadyHappened = true
+          @client.send_event(:pieceValid, self)
+        end
       else
         reset!
         @client.send_event(:pieceInvalid, self)
@@ -45,8 +50,8 @@ class Piece
   end
 
   def valid?
-    return true if @verified
     @mutex.synchronize {
+      return true if @verified
       d = Digest::SHA1.digest @data
 
       if @hash == d then
@@ -63,7 +68,8 @@ class Piece
     while @blocks[offset]
       offset += @blocks[offset]
     end
-    while (@requested[offset] && Time.now - @requested[offset][1] < 60) do 
+    # try changing this time for timeouts? 
+    while (@requested[offset] && Time.now - @requested[offset][1] < 10) do 
       offset += @requested[offset][0]
       while @blocks[offset] do
         offset += @blocks[offset]
@@ -75,9 +81,9 @@ class Piece
 
     n = @blocks.keys.sort.select {|x| x > offset}[0]
     if n.nil? then
-      desiredLength = [2**15, @pieceLength - offset].min
+      desiredLength = [2**14, @pieceLength - offset].min
     else
-      desiredLength = [2**15, n - offset].min
+      desiredLength = [2**14, n - offset].min
     end
     @requested[offset] = [desiredLength, Time.now]
     return offset, desiredLength

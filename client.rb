@@ -9,7 +9,7 @@ require 'socket'
 class Client
   include Event
 
-  attr_accessor :rarity, :peers, :pieces, :fm, :metainfo, :peerId, :uploadedBytes, :downloadedBytes
+  attr_accessor :rarity, :peers, :pieces, :fm, :metainfo, :peerId, :uploadedBytes, :downloadedBytes, :endGameMode
 
   event :peerConnect, :peerTimeout, :peerDisconnect, :pieceValid, :pieceInvalid, :complete
 
@@ -17,9 +17,12 @@ class Client
     @piecesDownloaded = 0
     @currentPieces = []
     @desiredPieces = []
+    @endGamePieces = {}
+    @endGameMode = false
     @metainfo = metainfo
     @timeOfLastChokeAlgorithm = Time.now
     @peersToUploadTo = []
+    @numConnectedPeers = 0
     @roundsSinceLastTime = 0
     @rarity = {}
     @peerId = "BLT--#{Time::now.to_i}--#{Process::pid}BLT"[0...20]
@@ -44,6 +47,7 @@ class Client
       peer.connected = false
       peer.blacklisted = true
       peer.socket.close
+      peer.clearRequests    # added this
       chokeAlgorithm
       connectToPeer
     end
@@ -95,6 +99,18 @@ class Client
     end
   end
 
+  def sendCancelsEndGame(pieceIndex, offset, length)
+    for peer in @peers
+      for request in peer.requestsToTimes do
+        if request[0] == pieceIndex && request[1] == offset then
+          peer.sendMessage(:cancel, pieceIndex, offset, length)
+          peer.requestsToTimes.delete(request)
+          break
+        end
+      end
+    end
+  end
+
   #probably need a mutex on this function actually
   #listen on http advertised port
   #deal with sending interesteds
@@ -142,8 +158,35 @@ class Client
 
   end
 
+  # added this
+  def setUpEndGame
+    i = 0
+    piecesLen = @pieces.size
+    while i < piecesLen
+      if @pieces[i] == nil then
+        i += 1
+        next
+      end
+      if !@pieces[i].verified then
+        for offset in @pieces[i].requested.keys
+          if @pieces[i].requested[offset] == nil then
+            next
+          end
+          length = @pieces[i].requested[offset][0]
+          if @endGamePieces[i] == nil then
+            @endGamePieces[i] = []
+          end
+          @endGamePieces[i].push([offset, length])
+        end
+      end
+      i += 1
+    end
+  end
+
   def talkToPeers
+
     while true do
+
       piecesLeft = @pieces.select { |p| p.verified == false }.length
       if piecesLeft == 0 then
         send_event(:complete)
@@ -165,6 +208,7 @@ class Client
         for request in peer.requestsFrom
         end
       end      
+
       # requesting to others
       if @piecesDownloaded > 4 && @desiredPieces.size < 10 then
         sortedRareIndices = @rarity.keys.sort { |x,y|
@@ -196,12 +240,36 @@ class Client
           end
 
           if !peer.is_choking then
+            p 'not choking'
+
+            foundSomethingToRequest = false
 
             for time in peer.requestsToTimes
               if Time.now - time[0] > 60 then
-                peer.requestsToTimes.delete(time)
                 peer.disconnect "Timeout receiving data!"
               end 
+            end
+
+            # check end game here
+            if @endGameMode then
+              for pieceIndex in @endGamePieces.keys
+                if peer.havePieces.include?(pieceIndex)
+                  for block in @endGamePieces[pieceIndex]
+                    alreadyRequested = false
+                    for requestTo in peer.requestsToTimes
+                      if requestTo[1] == pieceIndex && requestTo[2] == block[0] then
+                        alreadyRequested = true
+                        break
+                      end
+                    end
+                    if !alreadyRequested then
+                      p "END GAME REQUEST _________ ----------___________---------"
+                      peer.sendMessage(:request, pieceIndex, block[0], block[1])
+                    end
+                  end
+                end
+              end
+              next
             end
 
             if peer.requestsToTimes.size > 4 then
@@ -216,6 +284,9 @@ class Client
                 offset, length = @pieces[pieceIndex].getSectionToRequest
                 if offset != nil then
                   peer.sendMessage(:request, pieceIndex, offset, length)  #increments peer.requestsToTimes
+                  if !foundSomethingToRequest 
+                    foundSomethingToRequest = true
+                  end
                 else
                   break
                 end
@@ -237,6 +308,9 @@ class Client
                 offset, length = @pieces[pieceIndex].getSectionToRequest
                 if offset != nil then
                   peer.sendMessage(:request, pieceIndex, offset, length)
+                  if !foundSomethingToRequest
+                    foundSomethingToRequest = true
+                  end
                 else
                   break
                 end
@@ -259,6 +333,9 @@ class Client
                 offset, length = @pieces[pieceIndex].getSectionToRequest
                 if !offset.nil? then
                   peer.sendMessage(:request, pieceIndex, offset, length)
+                  if !foundSomethingToRequest
+                    foundSomethingToRequest = true
+                  end
                   if @currentPieces.include?(pieceIndex) then
                     @currentPieces.push(pieceIndex)
                   end
@@ -269,6 +346,12 @@ class Client
               if peer.requestsToTimes.size > 4 then
                 break
               end
+            end
+
+            if !foundSomethingToRequest then
+              p "ENTERING END GAME MODE BITCH BITCH BITCH BITCH BITCH BITCH BITCH"
+              setUpEndGame
+              @endGameMode = true
             end
           end
         end
