@@ -76,12 +76,14 @@ class Peer
         }
 
         @sendThread = Thread.new {
-          
+
           shouldAnswer = false
           on_event(self, :answer) {
+            sendMessage(:unchoke)
             shouldAnswer = true
           }
           on_event(self, :stopAnswer) {
+            sendMessage(:choke)
             shouldAnswer = false
           }
 
@@ -92,7 +94,9 @@ class Peer
                 offset += request.offset
                 length = request.length
                 data = client.fm.read(offset,length)
-                sendMessage(:piece, request.pieceIndex, request.offset, data)
+                if data != '' then
+                  sendMessage(:piece, request.pieceIndex, request.offset, data)
+                end
               end
             end
             sleep(0.25);

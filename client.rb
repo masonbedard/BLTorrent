@@ -175,6 +175,7 @@ class Client
       @roundsSinceLastTime += 1
 
       if @roundsSinceLastTime < 3 then
+        @timeOfLastChokeAlgorith = Time.now
         return
       end
 
