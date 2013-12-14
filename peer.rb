@@ -66,11 +66,6 @@ class Peer
         @commRecv = Time.now 
         @connected = true
         @connecting = false
-        connectedPeers = @client.peers.select{|peer| peer.connected}
-        if connectedPeers.size < 5 then
-          @client.peersToUploadTo.push(peer)
-          sendMessage(:unchoke)
-        end
         @client.send_event(:peerConnect, self)
 #        sendMessage(:bitfield)
         @listenThread = Thread.new { 
@@ -107,6 +102,12 @@ class Peer
             sleep(0.25);
           end
         }
+
+        connectedPeers = @client.peers.select{|peer| peer.connected}
+        if connectedPeers.size < 5 then
+          @client.peersToUploadTo.push(peer)
+          send_event(:answer)
+        end
 
         on_event(self, :noActivity) {
 #          p "eventh"
