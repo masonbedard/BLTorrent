@@ -24,6 +24,7 @@ class Client
     @endGameMode = false
     @metainfo = metainfo
     @timeOfLastChokeAlgorithm = Time.now
+    @mutex = Mutex.new
     @peersToUploadTo = []
     @numConnectedPeers = 0
     @roundsSinceLastTime = 0
@@ -114,58 +115,109 @@ class Client
     for peer in @peers
       for request in peer.requestsToTimes do
         if request[0] == pieceIndex && request[1] == offset then
-          peer.sendMessage(:cancel, pieceIndex, offset, length)
           peer.requestsToTimes.delete(request)
+          peer.sendMessage(:cancel, pieceIndex, offset, length)
           break
         end
       end
     end
   end
 
-  #probably need a mutex on this function actually
-  #listen on http advertised port
-  #deal with sending interesteds
+
+=begin
+
   def chokeAlgorithm
 
     @roundsSinceLastTime += 1
 
-    if @roundsSinceLastTime < 3 then
+    @peersToUploadTo = []
+
+    interestedUploaders = @peers.select{|peer|
+      !peer.is_seeder && peer.is_interested && peer.connected
+    }
+
+    if interestedUploaders.nil?
       return
     end
 
-    @peersToUploadTo = []
-
-    interestedUploaders = @peers.select{ |peer|
-      !peer.is_seeder && peer.is_interested && peer.bytesFromSinceLastChoking > 0
+    sortedInterestedUploaders = interestedUploaders.sort{ |x,y|
+      xRollingAverage = x.rollingAverage.inject(:+) / x.rollingAverage.size
+      yRollingAverage = y.rollingAverage.inject(:+) / y.rollingAverage.size
+      xRollingAverage <=> yRollingAverage
     }
 
-    sortedInterestedUploaders = interestedUploaders.sort{ |x, y|
-      x.bytesFromSinceLastChoking <=> y.bytesFromSinceLastChoking
-    }
-
-    while (@peersToUploadTo.size < 3 && !sortedInterestedUploaders.empty?)
+    while @peersToUploadTo.size < 4 && !sortedInterestedUploaders.empty?)
       @peersToUploadTo.push(sortedInterestedUploaders.pop)
     end
 
-    optimisticOptions = @peers.select {|peer|
-      !peer.is_seeder && !@peersToUploadTo.include?(peer)
-    }
+    if !roundsSinceLastTime >= 3
+      optimisticOptions = sortedInterestedUploaders.shuffle
 
-    optimisticOptions.shuffle!
+      while @peersToUploadTo.size < 5 && !optimisticOptions.empty?
+        @peersToUploadTo.push(optimisticOptions.pop)
+      end
+      @roundsSinceLastTime = 0
+    end
 
-    if optimisticOptions != nil then
-      for option in optimisticOptions do
-        @peersToUploadTo.push(option)
-        if @peersToUploadTo.size > 3 then
-          if option.is_interested
-            break
+    @timeOfLastChokeAlgorithm = Time.now
+
+  end
+=end
+
+  #probably need a mutex on this function actually
+  #listen on http advertised port
+  #deal with sending interesteds
+
+  def chokeAlgorithm
+
+    @mutex.synchronize {
+
+      @roundsSinceLastTime += 1
+
+      if @roundsSinceLastTime < 3 then
+        return
+      end
+
+      @peersToUploadTo = []
+
+      interestedUploaders = @peers.select{ |peer|
+        !peer.is_seeder && peer.is_interested && peer.connected && Time.now - peer.timeOfLastBlockFrom < 60
+      }
+
+      if !interestedUploaders.nil? then
+
+        sortedInterestedUploaders = interestedUploaders.sort{ |x,y|
+          xRollingAverage = x.rollingAverage.inject(:+) / x.rollingAverage.size
+          yRollingAverage = y.rollingAverage.inject(:+) / y.rollingAverage.size
+          xRollingAverage <=> yRollingAverage
+        }
+
+        while (@peersToUploadTo.size < 4 && !sortedInterestedUploaders.empty?)
+          @peersToUploadTo.push(sortedInterestedUploaders.pop)
+        end
+
+      end
+
+      optimisticOptions = @peers.select { |peer|
+        !peer.is_seeder && !@peersToUploadTo.include?(peer) && peer.connected && Time.now - peer.timeOfLastBlockFrom < 60
+      }
+
+      if optimisticOptions != nil then
+        optimisticOptions.shuffle!
+        for option in optimisticOptions do
+          @peersToUploadTo.push(option)
+          if @peersToUploadTo.size > 4 then
+            if option.is_interested
+              break
+            end
           end
         end
       end
-    end
 
-    @timeOfLastChokeAlgoritm = Time.now
-    @roundsSinceLastTime = 0
+      @timeOfLastChokeAlgorithm = Time.now
+      @roundsSinceLastTime = 0
+
+    }
 
   end
 
@@ -192,6 +244,15 @@ class Client
       end
       i += 1
     end
+  end
+
+  def keepTrackOfAverage(peer)
+    peer.rollingAverage.unshift(peer.bytesFromThisSecond)
+    if (peer.rollingAverage.size > 20) then
+      peer.rollingAverage.pop
+    end
+    peer.bytesFromThisSecond = 0;
+    peer.timeOfLastAverage = Time.now
   end
 
   def talkToPeers
@@ -230,21 +291,26 @@ class Client
         @lastInterval = Time.now
         @bytesInInterval = 0
       end
-      if Time.now - @timeOfLastChokeAlgorithm > 10 then
-        chokeAlgorithm
-      end
 
       if Time.now - @tracker.lastRequest > @tracker.interval then
         @tracker.makeRequest
+      end
+
+      # SENDING #######################################################################
+
+      if Time.now - @timeOfLastChokeAlgorithm > 10 then
+        chokeAlgorithm
       end
 
       #do we do this every loop iteration?
       #how many of their requests should we answer?
       for peer in @peersToUploadTo do
         for request in peer.requestsFrom
-
+          
         end
       end      
+
+      # SENDING #######################################################################
 
       # requesting to others
       if @piecesDownloaded > 4 && @desiredPieces.size < 10 then
@@ -270,7 +336,11 @@ class Client
       @peers.each { |peer|
         if peer.connected then
 
-          if Time.now-120 > peer.commRecv then #disconnect if nothing received for over 2 minutes
+          if Time.now - peer.timeOfLastAverage > 1 then
+            keepTrackOfAverage(peer)
+          end
+
+          if Time.now - 120 > peer.commRecv then #disconnect if nothing received for over 2 minutes
             peer.send_event(:noActivity)
           elsif Time.now - 110 > peer.commSent then #send keep alive if you havent sent to them in almost 2 minutes
             peer.sendMessage(:keepalive)

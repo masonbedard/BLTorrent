@@ -14,7 +14,8 @@ class Peer
   attr_accessor :ip, :port, :socket, :connected, :am_choking, :am_interested, 
                 :is_choking, :is_interested, :connecting, :requestsToTimes, 
                 :commSent, :commRecv, :requestsFrom, :blacklisted, :havePieces,
-                :is_seeder, :bytesFromSinceLastChoking
+                :is_seeder, :bytesFromThisSecond,
+                :rollingAverage, :timeOfLastAverage
   def initialize(client, ip, port)
     @client = client
     @ip = ip
@@ -33,8 +34,15 @@ class Peer
     @listenThread = nil
     @blacklisted = false
     @havePieces = []
-    @bytesFromSinceLastChoking = 0
     @is_seeder = false
+
+    #just added these
+    @bytesFromThisSecond = 0
+    @timeOfLastAverage = Time.now
+    @rollingAverage = []
+
+    @timeOfLastBlockFrom
+
   end
 
   def to_s
@@ -163,6 +171,7 @@ class Peer
         @requestsToTimes.push([Time.now, first, second])
         #p "sent a request ################################################ piece: #{first} offset #{second}  len #{third}"
         #p "to #{self}"
+        #puts data.unpack("H*")
         socket.write data
       when :cancel
         p 'CANCELING CAUSE OF END GAME THATS THE ONLY REASON WE CANCEL AT THE MOMENT WHY ELSE WOULD YOU'
@@ -264,15 +273,19 @@ class Peer
     when "\x02"
 #      p "interested from #{self}"
       @is_interested = true
+
       if !@am_choking then
         @client.chokeAlgorithm
       end
+
     when "\x03"
 #      p "uninterested from #{self}"
       @is_interested = false
+
       if !@am_choking then
         @client.chokeAlgorithm
       end
+
     when "\x04"
       pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
 #      p "have from #{self} for piece #{pieceIndex}"
@@ -328,7 +341,11 @@ class Peer
       pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
       offset = message[5..8].unpack("H*")[0].to_i(16)
       data = message[9..message.length]
-      @bytesFromSinceLastChoking += message.length
+
+      @bytesFromThisSecond += message.length    # ADDED THIS
+
+      @timeOfLastBlockFrom = Time.now
+
       for request in @requestsToTimes
         if request[1] == pieceIndex && request[2] == offset then
           @requestsToTimes.delete(request)
