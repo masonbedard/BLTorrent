@@ -358,7 +358,7 @@ class Peer
       end
       isSeeder?
     when "\x05"
-#      p "bitmap from #{self}"
+      p "bitmap from #{self}"
       i = 1
       bitmap = ""
       messageLen = message.length

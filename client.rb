@@ -169,12 +169,13 @@ class Client
   #deal with sending interesteds
 
   def chokeAlgorithm
-
+    p "calle dchoke"
     @mutex.synchronize {
 
       @roundsSinceLastTime += 1
 
       if @roundsSinceLastTime < 3 then
+        @timeOfLastChokeAlgorithm = Time.now
         return
       end
 
