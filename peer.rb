@@ -42,6 +42,7 @@ class Peer
   end
 
   def sendHandshake(infoHash, peerId)
+    p "sending handshake #{self.to_s}"
     @connecting = true
     Thread.new {
       data = "\x13BitTorrent protocol\x00\x00\x00\x00\x00\x00\x00\x00#{infoHash}#{peerId}"
