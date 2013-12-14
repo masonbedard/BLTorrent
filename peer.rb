@@ -9,7 +9,7 @@ end
 class Peer
   include Event
 
-  event :noActivity
+  event :noActivity, :answer, :stopAnswer
 
   attr_accessor :ip, :port, :socket, :connected, :am_choking, :am_interested, 
                 :is_choking, :is_interested, :connecting, :requestsToTimes, 
@@ -32,6 +32,7 @@ class Peer
     @commSent = nil
     @commRecv = nil
     @listenThread = nil
+    @sendThread = nil
     @blacklisted = false
     @havePieces = []
     @is_seeder = false
@@ -73,9 +74,35 @@ class Peer
             listenForMessages 
           end 
         }
+
+        @sendThread = Thread.new {
+          
+          shouldAnswer = false
+          on_event(self, :answer) {
+            shouldAnswer = true
+          }
+          on_event(self, :stopAnswer) {
+            shouldAnswer = false
+          }
+
+          while @connected do
+            if shouldAnswer
+              for request in @requestsFrom
+                offset = request.pieceIndex * client.metainfo.pieceLength
+                offset += request.offset
+                length = request.length
+                data = client.fm.read(offset,length)
+                sendMessage(:piece, request.pieceIndex, request.offset, data)
+              end
+            end
+            sleep(0.25);
+          end
+        }
+
         on_event(self, :noActivity) {
 #          p "eventh"
           @listenThread.terminate
+          @sendThread.terminate
           disconnect("No connectivity seen")
         }
       rescue Errno::ECONNRESET, Timeout::Error, Errno::ECONNREFUSED, Errno::ENETUNREACH
@@ -359,14 +386,24 @@ class Peer
       end
       isSeeder?
       sendMessage(:interested)
+
     when "\x06"
-      p 7509283745098273504987230985709234857098234750923750982374508723098457203498750923750923475
       p "request from #{self}"
       # TODO
-      # pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
-      # offset = message[5..8].unpack("H*")[0].to_i(16)
-      # length = message[9..12].unpack("H*")[0].to_i(16)
+      pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
+      offset = message[5..8].unpack("H*")[0].to_i(16)
+      length = message[9..12].unpack("H*")[0].to_i(16)
       # @peers[peerIndex].requests.unshift(Request.new(pieceIndex, offset, length))
+      alreadyRequested = false
+      for request in @requestsFrom
+        if request.pieceIndex == offset && request.offset == offset && request.length == length
+          alreadyRequested = true
+        end
+      end
+      if !alreadyRequested
+        @requestsFrom.push(Request.new(pieceIndex,offset,length))
+      end
+
     when "\x07"
       pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
       offset = message[5..8].unpack("H*")[0].to_i(16)
