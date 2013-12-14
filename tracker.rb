@@ -6,12 +6,14 @@ def getHex(number, padding)
 end
 
 class Tracker
-  attr_accessor :lastRequest, :interval
+  attr_accessor :lastRequest, :interval, :requesting, :minInterval
   def initialize(client)
     @client = client
     @lastRequest = nil
-    @interval = -1
+    @interval = nil
+    @minInterval = 10
     @udpConnectionId = nil
+    @requesting = false
   end
 
   def makeRequest(event=nil)
@@ -39,12 +41,13 @@ class Tracker
     params = {
       info_hash: @client.metainfo.infoHash,
       peer_id: @client.peerId,
-      compact: 1,
-      left: @client.pieces.select {|p| !p.verified}.length * @client.metainfo.pieceLength,
+      port: 51415,
       uploaded: @client.uploadedBytes,
       downloaded: @client.downloadedBytes,
+      left: @client.pieces.select {|p| !p.verified}.length * @client.metainfo.pieceLength,
       numwant: 50,
-      port: 51415,
+      compact: 1,
+      
     }
     params[:event] = event if not event.nil?
 
@@ -63,6 +66,8 @@ class Tracker
   def parseHTTPResponse(res)
     dict = BEncode::load(res)
     @interval = dict["interval"]
+    @minInterval = dict["min interval"]
+    @minInterval = 10 if @minInterval.nil? # 10 seconds if 
     if dict["peers"].class == Array then
       puts "No peers"
       return
@@ -73,11 +78,14 @@ class Tracker
     while (i<peersLen) do
       ip = "#{peers[i]}.#{peers[i+1]}.#{peers[i+2]}.#{peers[i+3]}"
       port = peers[i+4] * 256 + peers[i+5]
-      if @client.peers.select {|p| p.ip == ip && p.port==port}.length == 0 then
+      if @client.peers.select {|p| p.ip == ip}.length == 0 then
+
+        p @client.peers.select {|p| p.ip == ip}.length
         @client.peers.push(Peer.new(@client, ip, port))
       end
       i += 6
     end
+    p @client.peers.map {|p|"#{p.ip} #{p.port}"}
   end
 
   def udpConnect
@@ -151,11 +159,13 @@ class Tracker
       return # tracker didnt send back corrent id
     end
     @interval = data[8...12].unpack("H*")[0].to_i
-    peers = data[20..data.length].bytes
+    peers = data[20..data.length].bytes.to_a
     i = 0
     while (i<peers.length) do
       ip = "#{peers[i]}.#{peers[i+1]}.#{peers[i+2]}.#{peers[i+3]}"
       port = peers[i+4] * 256 + peers[i+5]
+      p ip
+      p port
       if @client.peers.select {|p| p.ip == ip && p.port==port}.length == 0 then
         @client.peers.push(Peer.new(@client, ip, port))
       end

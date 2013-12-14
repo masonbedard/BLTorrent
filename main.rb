@@ -9,8 +9,8 @@ metainfo = Metainfo::parseFile(filename)
 
 client = Client.new(metainfo)
 client.on_event(self, :complete) {
-  client.shutdown!
-  puts "Complete"
+  # client.shutdown!
+  puts "Downloaded, seeding now"
 }
 begin
   client.start!

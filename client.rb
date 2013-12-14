@@ -9,11 +9,14 @@ require 'socket'
 class Client
   include Event
 
-  attr_accessor :rarity, :peers, :pieces, :fm, :metainfo, :peerId, :uploadedBytes, :downloadedBytes, :endGameMode
+  attr_accessor :rarity, :peers, :pieces, :fm, :metainfo, 
+                :peerId, :uploadedBytes, :downloadedBytes, 
+                :endGameMode, :bytesInInterval
 
   event :peerConnect, :peerTimeout, :peerDisconnect, :pieceValid, :pieceInvalid, :complete
 
   def initialize(metainfo)
+    @complete = false
     @piecesDownloaded = 0
     @currentPieces = []
     @desiredPieces = []
@@ -31,8 +34,13 @@ class Client
     @peers = []
     @downloadedBytes = 0
     @uploadedBytes = 0
+    @bytesInInterval = 0
+    @lastInterval = Time.now
     @tracker = Tracker.new(self)
     @tracker.makeRequest(:started)
+    @listenThread = Thread.new {
+      listenForPeers
+    }
     p "#{@metainfo}"
     puts "Num peers: #{@peers.length}"
     on_event(self, :peerConnect) do |c, peer| 
@@ -43,7 +51,7 @@ class Client
       connectToPeer
     end
     on_event(self, :peerDisconnect) do |c, peer, reason| 
-      p "Peer removed: #{peer} #{reason}\n"
+#      p "Peer removed: #{peer} #{reason}\n"
       peer.connected = false
       peer.blacklisted = true
       peer.socket.close
@@ -52,7 +60,7 @@ class Client
       connectToPeer
     end
     on_event(self, :pieceValid) do |c, piece|
-      p "Valid piece: #{@pieces.index(piece)}"
+#      p "Valid piece: #{@pieces.index(piece)}"
       @downloadedBytes+=@metainfo.pieceLength
       @piecesDownloaded+=1
       pieceIndex = @pieces.index(piece)
@@ -82,11 +90,14 @@ class Client
   end
 
   def genPiecesArray(pieceLength, numPieces) 
+    totalBytes = @metainfo.files.inject(0) {|sum, arr| sum + arr[1]}
+    count = 0
     pieces = Array.new(numPieces)
     i = 0
-    while (i < numPieces)
-      pieces[i] = Piece.new(self, pieceLength, @metainfo.pieces[i])
+    while (count < totalBytes)
+      pieces[i] = Piece.new(self, [pieceLength,totalBytes-count].min, @metainfo.pieces[i])
       i += 1
+      count += pieceLength
     end
     return pieces
   end
@@ -186,13 +197,38 @@ class Client
   def talkToPeers
 
     while true do
+      connected = 0
+      connecting = 0
+      blacklisted = 0
+      @peers.each { |p|
+        connected += 1 if p.connected
+        connecting += 1 if p.connecting
+        blacklisted += 1 if p.blacklisted
+      }
+      if connected + connecting + blacklisted == @peers.length then
+        if connected + connecting < 30 && Time.now - @tracker.lastRequest > @tracker.minInterval then
+          p "Need more peers, sending request"
+          @tracker.makeRequest
+          p "new peers length #{@peers.length}"
+        end
+      else
+        (30 - (connected + connected)).times { connectToPeer }
+      end
+
 
       piecesLeft = @pieces.select { |p| p.verified == false }.length
-      if piecesLeft == 0 then
+      if piecesLeft == 0 && !@complete then
+        @complete = true
         send_event(:complete)
-        break
-      else
-        puts piecesLeft
+      end
+      if Time.now - @lastInterval > 1 then
+        puts
+        puts "There are #{piecesLeft} pieces left"
+        puts "Download speed MB/s #{@bytesInInterval/1000000.0}"
+        puts "Connected to #{@peers.select {|p| p.connected}.length} peers"
+        puts
+        @lastInterval = Time.now
+        @bytesInInterval = 0
       end
       if Time.now - @timeOfLastChokeAlgorithm > 10 then
         chokeAlgorithm
@@ -206,6 +242,7 @@ class Client
       #how many of their requests should we answer?
       for peer in @peersToUploadTo do
         for request in peer.requestsFrom
+
         end
       end      
 
@@ -240,7 +277,7 @@ class Client
           end
 
           if !peer.is_choking then
-            p 'not choking'
+#            p 'not choking'
 
             foundSomethingToRequest = false
 
@@ -263,7 +300,7 @@ class Client
                       end
                     end
                     if !alreadyRequested then
-                      p "END GAME REQUEST _________ ----------___________---------"
+#                      p "END GAME REQUEST _________ ----------___________---------"
                       peer.sendMessage(:request, pieceIndex, block[0], block[1])
                     end
                   end
@@ -356,7 +393,7 @@ class Client
           end
         end
       }
-      sleep 0.05
+      sleep 0.01
     end
   end
   def shutdown!
@@ -368,5 +405,28 @@ class Client
       end
     }
     @tracker.makeRequest(:stopped)
+  end
+
+  def listenForPeers
+    server = TCPServer.new 51415
+    loop do
+      client = server.accept
+      Timeout::timeout(20) {
+        x, port, x, ip = client.peeraddr
+        data = client.recv(48)
+        if data[28...48] != @metainfo.infoHash || @peers.select {|p|p.ip==ip}then
+          #p "bad info hash"
+          #client.close
+        else
+          p "got handshake"
+          p "g903468-02835904-accepted #{ip} #{port}"
+          peer = Peer.new(self, ip, port)
+          peer.socket = client
+          puts "send bitfield"
+          peer.sendMessage(:bitfield)
+          @peers.push(peer)
+        end
+      }
+    end
   end
 end

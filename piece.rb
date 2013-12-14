@@ -14,20 +14,23 @@ class Piece
   end
 
   def writeData(offset, data)
-    @data[offset...(offset + data.length)] = data
-    @blocks[offset] = data.length
-    @requested[offset] = nil    # added this
-    if complete? then
-      if valid? then
-        if !@hasAlreadyHappened
-          @hasAlreadyHappened = true
-          @client.send_event(:pieceValid, self)
+    @mutex.synchronize {
+      return if @verified
+      @data[offset...(offset + data.length)] = data
+      @blocks[offset] = data.length
+      @requested[offset] = nil    # added this
+      if complete? then
+        if valid? then
+          if !@hasAlreadyHappened
+            @hasAlreadyHappened = true
+            @client.send_event(:pieceValid, self)
+          end
+        else
+          reset!
+          @client.send_event(:pieceInvalid, self)
         end
-      else
-        reset!
-        @client.send_event(:pieceInvalid, self)
       end
-    end
+    }
   end
 
   def complete?
@@ -50,17 +53,15 @@ class Piece
   end
 
   def valid?
-    @mutex.synchronize {
-      return true if @verified
-      d = Digest::SHA1.digest @data
+    return true if @verified
+    d = Digest::SHA1.digest @data
 
-      if @hash == d then
-        @verified = true
-        true
-      else 
-        false
-      end 
-    }
+    if @hash == d then
+      @verified = true
+      true
+    else 
+      false
+    end 
   end
 
   def getSectionToRequest
@@ -81,9 +82,9 @@ class Piece
 
     n = @blocks.keys.sort.select {|x| x > offset}[0]
     if n.nil? then
-      desiredLength = [2**14, @pieceLength - offset].min
+      desiredLength = [2**16, @pieceLength - offset].min
     else
-      desiredLength = [2**14, n - offset].min
+      desiredLength = [2**16, n - offset].min
     end
     @requested[offset] = [desiredLength, Time.now]
     return offset, desiredLength

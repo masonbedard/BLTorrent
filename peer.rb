@@ -69,7 +69,7 @@ class Peer
           @listenThread.terminate
           disconnect("No connectivity seen")
         }
-      rescue Errno::ECONNRESET, Timeout::Error, Errno::ECONNREFUSED
+      rescue Errno::ECONNRESET, Timeout::Error, Errno::ECONNREFUSED, Errno::ENETUNREACH
         @blacklisted = true
         @connecting = false
         @client.send_event(:peerTimeout, self)
@@ -95,7 +95,7 @@ class Peer
     while data.length < 4 do
       begin 
         data = @socket.recv(4 - data.length) # block until we get 4 bytes
-      rescue Errno::ECONNRESET
+      rescue Errno::ECONNRESET, IOError
         disconnect("Peer reset connection")
         return
       end
@@ -193,18 +193,20 @@ class Peer
       data += getHex(first, 8)
     when :bitfield
       bitfield = ""
-      for piece in first
-        if piece.possessed then
+      @client.pieces.each { |p|
+        if p.verified then
           bitfield += "1"
         else
           bitfield += "0"
         end
-      end
+      }
+
       i = bitfield.size
       while (i % 8) != 0
         bitfield += "0"
         i += 1
       end
+      p bitfield
       bitfieldValue = bitfield.to_i(2)
       len = 1 + (bitfieldValue.to_s(16).size / 2)
       data = getHex(len, 8)
@@ -247,7 +249,7 @@ class Peer
       @client.pieces[request[1]].requested[request[2]] = nil 
     end
     @requestsToTimes = [] # probably not necessary? or wrong?
-    p 'cleared requests'
+#    p 'cleared requests'
   end
 
   def parseMessage(message)
@@ -315,6 +317,7 @@ class Peer
       isSeeder?
       sendMessage(:interested)
     when "\x06"
+      p 7509283745098273504987230985709234857098234750923750982374508723098457203498750923750923475
       p "request from #{self}"
       # TODO
       # pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
@@ -332,6 +335,7 @@ class Peer
           break
         end
       end
+      @client.bytesInInterval += data.length
       if @client.endGameMode then
         Thread.new {
           @client.sendCancelsEndGame(pieceIndex, offset, message.length - 8)
