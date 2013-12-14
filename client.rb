@@ -484,7 +484,7 @@ class Client
       begin
         Timeout::timeout(20) {
           x, port, x, ip = client.peeraddr
-          data = client.recv(48)
+          data = client.recv(68)
           if data[28...48] != @metainfo.infoHash then
             p "bad info hash"
             client.close
@@ -492,9 +492,10 @@ class Client
             p "got handshake"
             p "g903468-02835904-accepted #{ip} #{port}"
             peer = Peer.new(self, ip, port)
+            peer.commRecv = Time.now
             peer.socket = client
             puts "send bitfield"
-            peer.sendHandshake(@metainfo.infoHash, @peerId)
+            peer.sendHandshakeNoRecv(@metainfo.infoHash, @peerId)
             peer.sendMessage(:bitfield)
             @peers.push(peer)
           end

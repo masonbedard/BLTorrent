@@ -14,7 +14,7 @@ class Peer
   attr_accessor :ip, :port, :socket, :connected, :am_choking, :am_interested, 
                 :is_choking, :is_interested, :connecting, :requestsToTimes, 
                 :commSent, :commRecv, :requestsFrom, :blacklisted, :havePieces,
-                :is_seeder, :bytesFromThisSecond,
+                :is_seeder, :bytesFromThisSecond, :timeOfLastBlockFrom,
                 :rollingAverage, :timeOfLastAverage
   def initialize(client, ip, port)
     @client = client
@@ -41,7 +41,7 @@ class Peer
     @timeOfLastAverage = Time.now
     @rollingAverage = []
 
-    @timeOfLastBlockFrom
+    @timeOfLastBlockFrom = Time.now
 
   end
 
@@ -66,7 +66,7 @@ class Peer
         @connected = true
         @connecting = false
         @client.send_event(:peerConnect, self)
-
+#        sendMessage(:bitfield)
         @listenThread = Thread.new { 
 #          p "Listen thread started for #{self}"
           while @connected do 
@@ -84,6 +84,35 @@ class Peer
         @client.send_event(:peerTimeout, self)
       end 
     }
+  end
+
+  def sendHandshakeNoRecv(infoHash, peerId)
+    data = "\x13BitTorrent protocol\x00\x00\x00\x00\x00\x00\x00\x00#{infoHash}#{peerId}"
+    begin 
+      Timeout::timeout(10) {
+        @socket.write data
+      }
+      @commSent = Time.now
+      @connected = true
+      @connecting = false
+      @client.send_event(:peerConnect, self)
+
+      @listenThread = Thread.new { 
+#          p "Listen thread started for #{self}"
+        while @connected do 
+          listenForMessages 
+        end 
+      }
+      on_event(self, :noActivity) {
+#          p "eventh"
+        @listenThread.terminate
+        disconnect("No connectivity seen")
+      }
+    rescue Errno::ECONNRESET, Timeout::Error, Errno::ECONNREFUSED, Errno::ENETUNREACH
+      @blacklisted = true
+      @connecting = false
+      @client.send_event(:peerTimeout, self)
+    end 
   end
 
   def disconnect(reason)
@@ -116,6 +145,7 @@ class Peer
 
     @commRecv = Time.now # got a message from peer
     len = data.unpack("H*")[0].to_i(16)
+
     if len > 0 then
       message = ""
       begin
@@ -152,31 +182,31 @@ class Peer
     begin
       case type
       when :keepalive
-        socket.write data
+        @socket.write data
       when :choke
         @am_choking = true
-        socket.write data
+        @socket.write data
       when :unchoke
         @am_choking = false
-        socket.write data
+        @socket.write data
       when :interested
         @am_interested = true
 #        p 'sending out shit here'
-        socket.write data
+        @socket.write data
       when :uninterested
         @am_interested = false
-        socket.write data
+        @socket.write data
       when :have, :bitfield, :piece, :piece, :cancel, :port
-        socket.write data
+        @socket.write data
       when :request
         @requestsToTimes.push([Time.now, first, second])
         #p "sent a request ################################################ piece: #{first} offset #{second}  len #{third}"
         #p "to #{self}"
         #puts data.unpack("H*")
-        socket.write data
+        @socket.write data
       when :cancel
         p 'CANCELING CAUSE OF END GAME THATS THE ONLY REASON WE CANCEL AT THE MOMENT WHY ELSE WOULD YOU'
-        socket.write data
+        @socket.write data
       else
         raise "No message of type #{type}"
       end
@@ -216,7 +246,6 @@ class Peer
         bitfield += "0"
         i += 1
       end
-      p bitfield
       bitfieldValue = bitfield.to_i(2)
       len = 1 + (bitfieldValue.to_s(16).size / 2)
       data = getHex(len, 8)
