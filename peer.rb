@@ -42,7 +42,7 @@ class Peer
     @timeOfLastAverage = Time.now
     @rollingAverage = []
 
-    @timeOfLastBlockFrom
+    @timeOfLastBlockFrom = Time.now
 
   end
 
@@ -66,6 +66,11 @@ class Peer
         @commRecv = Time.now 
         @connected = true
         @connecting = false
+        connectedPeers = @client.peers.select{|peer| peer.connected}
+        if connectedPeers.size < 5 then
+          @client.peersToUploadTo.push(peer)
+          sendMessage(:unchoke)
+        end
         @client.send_event(:peerConnect, self)
 
         @listenThread = Thread.new { 
