@@ -88,9 +88,10 @@ class FileManager
 
     fd, len = @files[currIndex]
     fd.seek(newOffset)
-    if length + newOffset <= len then # reading all in this file
-      data = fd.read(length)
+    if length + newOffset <= len or currIndex == @files.length - 1 then # reading all in this file
+      data = fd.read([length, len-newOffset].min)
       data = "" if data.nil?
+      return data
     else #reading across multiple
       lenToRead = len-newOffset
       data = fd.read(lenToRead) 
@@ -109,8 +110,8 @@ class FileManager
         data.concat x
         length = length - len
       end
+      return data
     end
-    return data
   end
 
   def openFile(path)

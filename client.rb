@@ -481,22 +481,27 @@ class Client
     server = TCPServer.new 51415
     loop do
       client = server.accept
-      Timeout::timeout(20) {
-        x, port, x, ip = client.peeraddr
-        data = client.recv(48)
-        if data[28...48] != @metainfo.infoHash || @peers.select {|p|p.ip==ip}then
-          #p "bad info hash"
-          #client.close
-        else
-          p "got handshake"
-          p "g903468-02835904-accepted #{ip} #{port}"
-          peer = Peer.new(self, ip, port)
-          peer.socket = client
-          puts "send bitfield"
-          peer.sendMessage(:bitfield)
-          @peers.push(peer)
-        end
-      }
+      begin
+        Timeout::timeout(20) {
+          x, port, x, ip = client.peeraddr
+          data = client.recv(48)
+          if data[28...48] != @metainfo.infoHash then
+            p "bad info hash"
+            client.close
+          else
+            p "got handshake"
+            p "g903468-02835904-accepted #{ip} #{port}"
+            peer = Peer.new(self, ip, port)
+            peer.socket = client
+            puts "send bitfield"
+            peer.sendHandshake(@metainfo.infoHash, @peerId)
+            peer.sendMessage(:bitfield)
+            @peers.push(peer)
+          end
+        }
+      rescue Timeout::Error
+        next
+      end
     end
   end
 end
