@@ -178,7 +178,7 @@ class Client
         return
       end
 
-      @peersToUploadTo = []
+      newestUnchokedPeers = []
 
       interestedUploaders = @peers.select{ |peer|
         !peer.is_seeder && peer.is_interested && peer.connected && Time.now - peer.timeOfLastBlockFrom < 60
@@ -192,27 +192,43 @@ class Client
           xRollingAverage <=> yRollingAverage
         }
 
-        while (@peersToUploadTo.size < 4 && !sortedInterestedUploaders.empty?)
-          @peersToUploadTo.push(sortedInterestedUploaders.pop)
+        while (newestUnchokedPeers.size < 4 && !sortedInterestedUploaders.empty?)
+          newestUnchokedPeers.push(sortedInterestedUploaders.pop)
         end
 
       end
 
       optimisticOptions = @peers.select { |peer|
-        !peer.is_seeder && !@peersToUploadTo.include?(peer) && peer.connected && Time.now - peer.timeOfLastBlockFrom < 60
+        !peer.is_seeder && !newestUnchokedPeers.include?(peer) && peer.connected && Time.now - peer.timeOfLastBlockFrom < 60
       }
 
       if optimisticOptions != nil then
         optimisticOptions.shuffle!
         for option in optimisticOptions do
-          @peersToUploadTo.push(option)
-          if @peersToUploadTo.size > 4 then
+          newestUnchokedPeers.push(option)
+          if newestUnchokedPeers.size > 4 then
             if option.is_interested
               break
             end
           end
         end
       end
+
+      stayingUnchoked = newestUnchokedPeers & @peersToUploadTo
+
+      for peer in @peersToUploadTo
+        if !stayingUnchoked.include?(peer)
+          peer.send_event(:stopAnswer)
+        end
+      end
+
+      for peer in newestUnchokedPeers
+        if !stayingUnchoked.include?(peer)
+          peer.send_event(:answer)
+        end
+      end
+
+      @peersToUploadTo = newestUnchokedPeers
 
       @timeOfLastChokeAlgorithm = Time.now
       @roundsSinceLastTime = 0
@@ -304,11 +320,13 @@ class Client
 
       #do we do this every loop iteration?
       #how many of their requests should we answer?
+=begin
       for peer in @peersToUploadTo do
         for request in peer.requestsFrom
           
         end
       end      
+=end
 
       # SENDING #######################################################################
 
