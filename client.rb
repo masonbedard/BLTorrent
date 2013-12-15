@@ -11,7 +11,8 @@ class Client
 
   attr_accessor :rarity, :peers, :pieces, :fm, :metainfo, 
                 :peerId, :uploadedBytes, :downloadedBytes, 
-                :endGameMode, :bytesInInterval
+                :endGameMode, :bytesInInterval, :peersToUploadTo,
+                :uploadBytesInInterval
 
   event :peerConnect, :peerTimeout, :peerDisconnect, :pieceValid, :pieceInvalid, :complete
 
@@ -36,9 +37,11 @@ class Client
     @downloadedBytes = 0
     @uploadedBytes = 0
     @bytesInInterval = 0
+    @uploadBytesInInterval = 0
     @lastInterval = Time.now
     @tracker = Tracker.new(self)
     @tracker.makeRequest(:started)
+    @seeding = false
     @listenThread = Thread.new {
       listenForPeers
     }
@@ -52,7 +55,7 @@ class Client
       connectToPeer
     end
     on_event(self, :peerDisconnect) do |c, peer, reason| 
-#      p "Peer removed: #{peer} #{reason}\n"
+      p "Peer removed: #{peer} #{reason}\n"
       peer.connected = false
       peer.blacklisted = true
       peer.socket.close
@@ -169,7 +172,8 @@ class Client
   #deal with sending interesteds
 
   def chokeAlgorithm
-    p "calle dchoke"
+    return if @complete
+    p "called choke #{@complete}"
     @mutex.synchronize {
 
       @roundsSinceLastTime += 1
@@ -273,215 +277,231 @@ class Client
   end
 
   def talkToPeers
-
     while true do
-      connected = 0
-      connecting = 0
-      blacklisted = 0
       @peers.each { |p|
-        connected += 1 if p.connected
-        connecting += 1 if p.connecting
-        blacklisted += 1 if p.blacklisted
+        if p.connected then
+          if Time.now - 120 > p.commRecv then 
+            p.send_event(:noActivity)
+          elsif Time.now - 110 > p.commSent then
+            p.sendMessage(:keepalive)
+          end 
+        end
       }
-      if connected + connecting + blacklisted == @peers.length then
-        if connected + connecting < 30 && Time.now - @tracker.lastRequest > @tracker.minInterval then
-          p "Need more peers, sending request"
+
+      if @complete then # seeding
+        if Time.now - @lastInterval > 1 then
+          puts
+          puts "Seeding..."
+          puts "Upload speed MB/s #{@uploadBytesInInterval/1000000.0}"
+          puts "Connected to #{@peers.select {|p| p.connected}.length} peers"
+          puts
+          @lastInterval = Time.now
+          @uploadBytesInInterval = 0
+        end
+      else # downloading
+        piecesLeft = @pieces.select { |p| p.verified == false }.length
+        if piecesLeft == 0 && !@complete then
+          @complete = true
+          send_event(:complete)
+          next
+        end
+
+        if Time.now - @lastInterval > 1 then
+          puts
+          puts "There are #{piecesLeft} pieces left"
+          puts "Download speed MB/s #{@bytesInInterval/1000000.0}"
+          puts "Connected to #{@peers.select {|p| p.connected}.length} peers"
+          puts
+          @lastInterval = Time.now
+          @bytesInInterval = 0
+        end
+
+        connected = 0
+        connecting = 0
+        blacklisted = 0
+        @peers.each { |p|
+          connected += 1 if p.connected
+          connecting += 1 if p.connecting
+          blacklisted += 1 if p.blacklisted
+        }
+        if connected + connecting + blacklisted == @peers.length then
+          if connected + connecting < 30 && Time.now - @tracker.lastRequest > @tracker.minInterval then
+            p "Need more peers, sending request"
+            @tracker.makeRequest
+            p "new peers length #{@peers.length}"
+          end
+        else
+          (30 - (connected + connected)).times { connectToPeer }
+        end
+
+        if Time.now - @tracker.lastRequest > @tracker.interval then
           @tracker.makeRequest
-          p "new peers length #{@peers.length}"
         end
-      else
-        (30 - (connected + connected)).times { connectToPeer }
-      end
 
+        # SENDING #######################################################################
 
-      piecesLeft = @pieces.select { |p| p.verified == false }.length
-      if piecesLeft == 0 && !@complete then
-        @complete = true
-        send_event(:complete)
-      end
-      if Time.now - @lastInterval > 1 then
-        puts
-        puts "There are #{piecesLeft} pieces left"
-        puts "Download speed MB/s #{@bytesInInterval/1000000.0}"
-        puts "Connected to #{@peers.select {|p| p.connected}.length} peers"
-        puts
-        @lastInterval = Time.now
-        @bytesInInterval = 0
-      end
+        if Time.now - @timeOfLastChokeAlgorithm > 10 then
+          chokeAlgorithm
+        end
 
-      if Time.now - @tracker.lastRequest > @tracker.interval then
-        @tracker.makeRequest
-      end
-
-      # SENDING #######################################################################
-
-      if Time.now - @timeOfLastChokeAlgorithm > 10 then
-        chokeAlgorithm
-      end
-
-      #do we do this every loop iteration?
-      #how many of their requests should we answer?
+        #do we do this every loop iteration?
+        #how many of their requests should we answer?
 =begin
-      for peer in @peersToUploadTo do
-        for request in peer.requestsFrom
-          
-        end
-      end      
+        for peer in @peersToUploadTo do
+          for request in peer.requestsFrom
+            
+          end
+        end      
 =end
 
-      # SENDING #######################################################################
+        # SENDING #######################################################################
 
-      # requesting to others
-      if @piecesDownloaded > 4 && @desiredPieces.size < 10 then
-        sortedRareIndices = @rarity.keys.sort { |x,y|
-          @rarity[x].size <=> @rarity[y].size 
-        }
-        for index in sortedRareIndices
-          if @desiredPieces.size > 9 then
-            break
-          end
-          if @rarity[index].size == 0 || @pieces[index].verified then
-            next
-          end
-          if !@desiredPieces.include?(index) then
-            @desiredPieces.push(index)
-            if @currentPieces.include?(index) then
-              @currentPieces.delete(index)
+        # requesting to others
+        if @piecesDownloaded > 4 && @desiredPieces.size < 10 then
+          sortedRareIndices = @rarity.keys.sort { |x,y|
+            @rarity[x].size <=> @rarity[y].size 
+          }
+          for index in sortedRareIndices
+            if @desiredPieces.size > 9 then
+              break
+            end
+            if @rarity[index].size == 0 || @pieces[index].verified then
+              next
+            end
+            if !@desiredPieces.include?(index) then
+              @desiredPieces.push(index)
+              if @currentPieces.include?(index) then
+                @currentPieces.delete(index)
+              end
             end
           end
         end
-      end
 
-      @peers.each { |peer|
-        if peer.connected then
+        @peers.each { |peer|
+          if peer.connected then
 
-          if Time.now - peer.timeOfLastAverage > 1 then
-            keepTrackOfAverage(peer)
-          end
-
-          if Time.now - 120 > peer.commRecv then #disconnect if nothing received for over 2 minutes
-            peer.send_event(:noActivity)
-          elsif Time.now - 110 > peer.commSent then #send keep alive if you havent sent to them in almost 2 minutes
-            peer.sendMessage(:keepalive)
-          end
-
-          if !peer.is_choking then
-#            p 'not choking'
-
-            foundSomethingToRequest = false
-
-            for time in peer.requestsToTimes
-              if Time.now - time[0] > 60 then
-                peer.disconnect "Timeout receiving data!"
-              end 
+            if Time.now - peer.timeOfLastAverage > 1 then
+              keepTrackOfAverage(peer)
             end
 
-            # check end game here
-            if @endGameMode then
-              for pieceIndex in @endGamePieces.keys
-                if peer.havePieces.include?(pieceIndex)
-                  for block in @endGamePieces[pieceIndex]
-                    alreadyRequested = false
-                    for requestTo in peer.requestsToTimes
-                      if requestTo[1] == pieceIndex && requestTo[2] == block[0] then
-                        alreadyRequested = true
-                        break
+            if !peer.is_choking then
+  #            p 'not choking'
+
+              foundSomethingToRequest = false
+
+              for time in peer.requestsToTimes
+                if Time.now - time[0] > 60 then
+                  peer.disconnect "Timeout receiving data!"
+                end 
+              end
+
+              # check end game here
+              if @endGameMode then
+                for pieceIndex in @endGamePieces.keys
+                  if peer.havePieces.include?(pieceIndex)
+                    for block in @endGamePieces[pieceIndex]
+                      alreadyRequested = false
+                      for requestTo in peer.requestsToTimes
+                        if requestTo[1] == pieceIndex && requestTo[2] == block[0] then
+                          alreadyRequested = true
+                          break
+                        end
+                      end
+                      if !alreadyRequested then
+  #                      p "END GAME REQUEST _________ ----------___________---------"
+                        peer.sendMessage(:request, pieceIndex, block[0], block[1])
                       end
                     end
-                    if !alreadyRequested then
-#                      p "END GAME REQUEST _________ ----------___________---------"
-                      peer.sendMessage(:request, pieceIndex, block[0], block[1])
+                  end
+                end
+                next
+              end
+
+              if peer.requestsToTimes.size > 4 then
+                next
+              end
+
+              for pieceIndex in @desiredPieces
+                if peer.havePieces.index(pieceIndex).nil? then
+                  next
+                end
+                while peer.requestsToTimes.size < 5
+                  offset, length = @pieces[pieceIndex].getSectionToRequest
+                  if offset != nil then
+                    peer.sendMessage(:request, pieceIndex, offset, length)  #increments peer.requestsToTimes
+                    if !foundSomethingToRequest 
+                      foundSomethingToRequest = true
                     end
+                  else
+                    break
                   end
                 end
-              end
-              next
-            end
-
-            if peer.requestsToTimes.size > 4 then
-              next
-            end
-
-            for pieceIndex in @desiredPieces
-              if peer.havePieces.index(pieceIndex).nil? then
-                next
-              end
-              while peer.requestsToTimes.size < 5
-                offset, length = @pieces[pieceIndex].getSectionToRequest
-                if offset != nil then
-                  peer.sendMessage(:request, pieceIndex, offset, length)  #increments peer.requestsToTimes
-                  if !foundSomethingToRequest 
-                    foundSomethingToRequest = true
-                  end
-                else
+                if peer.requestsToTimes.size > 4 then
                   break
                 end
               end
+
               if peer.requestsToTimes.size > 4 then
-                break
-              end
-            end
-
-            if peer.requestsToTimes.size > 4 then
-              next
-            end
-
-            for pieceIndex in @currentPieces
-              if peer.havePieces.index(pieceIndex) == nil then
                 next
               end
-              while peer.requestsToTimes.size < 5
-                offset, length = @pieces[pieceIndex].getSectionToRequest
-                if offset != nil then
-                  peer.sendMessage(:request, pieceIndex, offset, length)
-                  if !foundSomethingToRequest
-                    foundSomethingToRequest = true
+
+              for pieceIndex in @currentPieces
+                if peer.havePieces.index(pieceIndex) == nil then
+                  next
+                end
+                while peer.requestsToTimes.size < 5
+                  offset, length = @pieces[pieceIndex].getSectionToRequest
+                  if offset != nil then
+                    peer.sendMessage(:request, pieceIndex, offset, length)
+                    if !foundSomethingToRequest
+                      foundSomethingToRequest = true
+                    end
+                  else
+                    break
                   end
-                else
+                end
+                if peer.requestsToTimes.size > 4 then
                   break
                 end
               end
+
               if peer.requestsToTimes.size > 4 then
-                break
-              end
-            end
-
-            if peer.requestsToTimes.size > 4 then
-              next
-            end
-
-            # Peer doesn't have blocks from pieces we're currently working on
-            for pieceIndex in peer.havePieces
-              if @pieces[pieceIndex].verified then
                 next
               end
-              while peer.requestsToTimes.size < 5
-                offset, length = @pieces[pieceIndex].getSectionToRequest
-                if !offset.nil? then
-                  peer.sendMessage(:request, pieceIndex, offset, length)
-                  if !foundSomethingToRequest
-                    foundSomethingToRequest = true
+
+              # Peer doesn't have blocks from pieces we're currently working on
+              for pieceIndex in peer.havePieces
+                if @pieces[pieceIndex].verified then
+                  next
+                end
+                while peer.requestsToTimes.size < 5
+                  offset, length = @pieces[pieceIndex].getSectionToRequest
+                  if !offset.nil? then
+                    peer.sendMessage(:request, pieceIndex, offset, length)
+                    if !foundSomethingToRequest
+                      foundSomethingToRequest = true
+                    end
+                    if @currentPieces.include?(pieceIndex) then
+                      @currentPieces.push(pieceIndex)
+                    end
+                  else
+                    break
                   end
-                  if @currentPieces.include?(pieceIndex) then
-                    @currentPieces.push(pieceIndex)
-                  end
-                else
+                end
+                if peer.requestsToTimes.size > 4 then
                   break
                 end
               end
-              if peer.requestsToTimes.size > 4 then
-                break
-              end
-            end
 
-            if !foundSomethingToRequest then
-              p "ENTERING END GAME MODE BITCH BITCH BITCH BITCH BITCH BITCH BITCH"
-              setUpEndGame
-              @endGameMode = true
+              if !foundSomethingToRequest then
+                p "ENTERING END GAME MODE BITCH BITCH BITCH BITCH BITCH BITCH BITCH"
+                setUpEndGame
+                @endGameMode = true
+              end
             end
           end
-        end
-      }
+        }
+      end
       sleep 0.01
     end
   end
@@ -517,6 +537,11 @@ class Client
             peer.sendHandshakeNoRecv(@metainfo.infoHash, @peerId)
             peer.sendMessage(:bitfield)
             @peers.push(peer)
+            connectedPeers = @peers.select{|peer| peer.connected}
+            if @complete then
+              @peersToUploadTo.push(peer)
+              peer.send_event(:answer)
+            end
           end
         }
       rescue Timeout::Error

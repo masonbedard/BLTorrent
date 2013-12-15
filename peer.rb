@@ -1,5 +1,6 @@
 require './event'
 require './client'
+require './request'
 require 'timeout'
 
 def getHex(number, padding)
@@ -44,6 +45,15 @@ class Peer
 
     @timeOfLastBlockFrom = Time.now
 
+     @shouldAnswer = false
+      on_event(self, :answer) {
+        sendMessage(:unchoke)
+        @shouldAnswer = true
+      }
+      on_event(self, :stopAnswer) {
+        sendMessage(:choke)
+        @shouldAnswer = false
+      }
   end
 
   def to_s
@@ -75,37 +85,11 @@ class Peer
           end 
         }
 
-        @sendThread = Thread.new {
-
-          shouldAnswer = false
-          on_event(self, :answer) {
-            sendMessage(:unchoke)
-            shouldAnswer = true
-          }
-          on_event(self, :stopAnswer) {
-            sendMessage(:choke)
-            shouldAnswer = false
-          }
-
-          while @connected do
-            if shouldAnswer
-              for request in @requestsFrom
-                offset = request.pieceIndex * client.metainfo.pieceLength
-                offset += request.offset
-                length = request.length
-                data = client.fm.read(offset,length)
-                if data != '' then
-                  sendMessage(:piece, request.pieceIndex, request.offset, data)
-                end
-              end
-            end
-            sleep(0.25);
-          end
-        }
+        startSendThread
 
         connectedPeers = @client.peers.select{|peer| peer.connected}
         if connectedPeers.size < 5 then
-          @client.peersToUploadTo.push(peer)
+          @client.peersToUploadTo.push(self)
           send_event(:answer)
         end
 
@@ -120,6 +104,26 @@ class Peer
         @connecting = false
         @client.send_event(:peerTimeout, self)
       end 
+    }
+  end
+
+  def startSendThread
+    @sendThread = Thread.new {
+      while @connected do
+        if @shouldAnswer
+          for request in @requestsFrom
+            offset = request.pieceIndex * @client.metainfo.pieceLength
+            offset += request.offset
+            length = request.length
+            data = @client.fm.read(offset,length)
+            if data != '' then
+              sendMessage(:piece, request.pieceIndex, request.offset, data)
+            end
+            @requestsFrom.delete(request)
+          end
+        end
+        sleep(0.25);
+      end
     }
   end
 
@@ -140,6 +144,9 @@ class Peer
           listenForMessages 
         end 
       }
+
+      startSendThread
+
       on_event(self, :noActivity) {
 #          p "eventh"
         @listenThread.terminate
@@ -248,7 +255,7 @@ class Peer
         raise "No message of type #{type}"
       end
       @commSent = Time.now
-    rescue Errno::EPIPE, IOError => e
+    rescue Errno::EBADF, Errno::EPIPE, IOError => e
       disconnect("Peer threw exception #{e}")
     end
   end
@@ -299,7 +306,9 @@ class Peer
       data += "\x07"
       data += getHex(first, 8)
       data += getHex(second, 8)
-      data += getHex(third, 0)
+      data += third
+      @client.uploadBytesInInterval += third.length 
+      p "sending piece to #{self}"
     when :cancel
       data = "\x00\x00\x00\x0d\x08"
       data += getHex(first, 8)
