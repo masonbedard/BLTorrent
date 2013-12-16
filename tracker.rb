@@ -53,7 +53,11 @@ class Tracker
 
     uri.query = URI.encode_www_form(params)
     @lastRequest = Time.now
-    res = Net::HTTP.get_response(uri)
+    begin
+      res = Net::HTTP.get_response(uri)
+    rescue Errno::ECONNREFUSED => e
+      raise "Unable to connect to tracker."
+    end
     if event == :stopped then
       return
     elsif res.is_a?(Net::HTTPSuccess) then

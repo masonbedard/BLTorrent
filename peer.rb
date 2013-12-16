@@ -422,7 +422,6 @@ class Peer
       if !alreadyRequested
         @requestsFrom.push(Request.new(pieceIndex,offset,length))
       end
-
     when "\x07"
       pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
       offset = message[5..8].unpack("H*")[0].to_i(16)
@@ -448,16 +447,15 @@ class Peer
       @client.pieces[pieceIndex].writeData(offset, data)
     when "\x08"
       p "cancel from #{self}"
-      # TODO
-      # pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
-      # offset = message[5..8].unpack("H*")[0].to_i(16)
-      # length = message[9..12].unpack("H*")[0].to_i(16)
-      # index = @pieces.index { |request| 
-      #   request.pieceIndex == pieceIndex &&
-      #   request.offset == offset &&
-      #   request.length == length
-      # }
-      # @pieces.delete_at(index) if index != nil
+      pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
+      offset = message[5..8].unpack("H*")[0].to_i(16)
+      length = message[9..12].unpack("H*")[0].to_i(16)
+      for request in @requestsFrom
+        if request.pieceIndex == offset && request.offset == offset && request.length == length
+          @requestsFrom.delete(request)
+          return
+        end
+      end
     when "\x09"
 #      p "port from #{self}"
     end

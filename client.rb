@@ -89,7 +89,6 @@ class Client
   end
 
   def start!
-    30.times { connectToPeer }
     talkToPeers
   end
 
@@ -525,11 +524,10 @@ class Client
           x, port, x, ip = client.peeraddr
           data = client.recv(68)
           if data[28...48] != @metainfo.infoHash then
-            p "bad info hash"
+            p "bad info hash #{data}"
             client.close
           else
-            p "got handshake"
-            p "g903468-02835904-accepted #{ip} #{port}"
+            return if @peers.select {|p| p.ip == ip && p.port == port}.length>0
             peer = Peer.new(self, ip, port)
             peer.commRecv = Time.now
             peer.socket = client
