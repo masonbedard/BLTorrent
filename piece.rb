@@ -1,5 +1,5 @@
 class Piece
-  attr_reader :data
+  attr_reader :data, :entirelyRequested
   attr_accessor :verified, :requested
   def initialize(client, pieceLength, hash)
     @client = client
@@ -11,6 +11,7 @@ class Piece
     @hash = hash
     @mutex = Mutex.new
     @hasAlreadyHappened = false
+    @entirelyRequested = false
   end
 
   def writeData(offset, data)
@@ -77,8 +78,10 @@ class Piece
       end
     end
     if (offset == @pieceLength) then
+      @entirelyRequested = true
       return nil
     end
+    @entirelyRequested = false
 
     n = @blocks.keys.sort.select {|x| x > offset}[0]
     if n.nil? then

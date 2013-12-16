@@ -493,9 +493,17 @@ class Client
               end
 
               if !foundSomethingToRequest then
-                p "ENTERING END GAME MODE BITCH BITCH BITCH BITCH BITCH BITCH BITCH"
-                setUpEndGame
-                @endGameMode = true
+                enterIt = true
+                for piece in @pieces
+                    if !piece.entirelyRequested
+                        enterIt = false
+                    end
+                end
+                if enterIt
+                    p "ENTERING END GAME MODE BITCH BITCH BITCH BITCH BITCH BITCH BITCH"
+                    setUpEndGame
+                    @endGameMode = true
+                end
               end
             end
           end
