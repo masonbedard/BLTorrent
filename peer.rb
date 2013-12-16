@@ -61,7 +61,7 @@ class Peer
   end
 
   def sendHandshake(infoHash, peerId)
-    p "sending handshake #{self.to_s}"
+#    p "sending handshake #{self.to_s}"
     @connecting = true
     Thread.new {
       data = "\x13BitTorrent protocol\x00\x00\x00\x00\x00\x00\x00\x00#{infoHash}#{peerId}"
@@ -249,7 +249,7 @@ class Peer
         #puts data.unpack("H*")
         @socket.write data
       when :cancel
-        p 'CANCELING CAUSE OF END GAME THATS THE ONLY REASON WE CANCEL AT THE MOMENT WHY ELSE WOULD YOU'
+#        p 'CANCELING CAUSE OF END GAME THATS THE ONLY REASON WE CANCEL AT THE MOMENT WHY ELSE WOULD YOU'
         @socket.write data
       else
         raise "No message of type #{type}"
@@ -377,7 +377,7 @@ class Peer
       end
       isSeeder?
     when "\x05"
-      p "bitmap from #{self}"
+#      p "bitmap from #{self}"
       i = 1
       bitmap = ""
       messageLen = message.length

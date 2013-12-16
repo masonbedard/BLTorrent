@@ -41,7 +41,7 @@ class Tracker
     params = {
       info_hash: @client.metainfo.infoHash,
       peer_id: @client.peerId,
-      port: 51415,
+      port: @client.port,
       uploaded: @client.uploadedBytes,
       downloaded: @client.downloadedBytes,
       left: @client.pieces.select {|p| !p.verified}.length * @client.metainfo.pieceLength,
@@ -84,12 +84,12 @@ class Tracker
       port = peers[i+4] * 256 + peers[i+5]
       if @client.peers.select {|p| p.ip == ip}.length == 0 then
 
-        p @client.peers.select {|p| p.ip == ip}.length
+#        p @client.peers.select {|p| p.ip == ip}.length
         @client.peers.push(Peer.new(@client, ip, port))
       end
       i += 6
     end
-    p @client.peers.map {|p|"#{p.ip} #{p.port}"}
+#    p @client.peers.map {|p|"#{p.ip} #{p.port}"}
   end
 
   def udpConnect
@@ -139,7 +139,7 @@ class Tracker
     ip_address = getHex(0,8)
     key = getHex(0,8)
     num_want = getHex(50,8)
-    port = getHex(51415, 4)
+    port = getHex(@client.port, 4)
     data = "#{@udpConnectionId}#{action}#{transaction_id}#{info_hash}#{peer_id}"
     data.concat "#{downloaded}#{left}#{uploaded}#{e}#{ip_address}#{key}#{num_want}#{port}"
   

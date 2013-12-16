@@ -65,6 +65,24 @@ class Piece
     end 
   end
 
+  def getAllSectionsNotHad(os, sectionsToRequest)
+    offset = os
+    while @blocks[offset]
+      offset += @blocks[offset]
+    end
+    if offset == @pieceLength then
+      return sectionsToRequest
+    end
+    n = @blocks.keys.sort.select {|x| x > offset}[0]
+    if n.nil? then
+      desiredLength = [2**16, @pieceLength - offset].min
+    else
+      desiredLength = [2**16, n - offset].min
+    end
+    sectionsToRequest.push([offset, desiredLength])
+    return getAllSectionsNotHad(offset + desiredLength, sectionsToRequest)
+  end
+
   def getSectionToRequest
     offset = 0
     while @blocks[offset]
@@ -78,10 +96,8 @@ class Piece
       end
     end
     if (offset == @pieceLength) then
-      @entirelyRequested = true
       return nil
     end
-    @entirelyRequested = false
 
     n = @blocks.keys.sort.select {|x| x > offset}[0]
     if n.nil? then

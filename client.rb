@@ -12,11 +12,12 @@ class Client
   attr_accessor :rarity, :peers, :pieces, :fm, :metainfo, 
                 :peerId, :uploadedBytes, :downloadedBytes, 
                 :endGameMode, :bytesInInterval, :peersToUploadTo,
-                :uploadBytesInInterval
+                :uploadBytesInInterval, :numPiecesLeft, :port
 
   event :peerConnect, :peerTimeout, :peerDisconnect, :pieceValid, :pieceInvalid, :complete
 
-  def initialize(metainfo)
+  def initialize(metainfo, port)
+    @port = port
     @complete = false
     @piecesDownloaded = 0
     @currentPieces = []
@@ -33,6 +34,7 @@ class Client
     @peerId = "BLT--#{Time::now.to_i}--#{Process::pid}BLT"[0...20]
     @pieces = genPiecesArray(@metainfo.pieceLength, @metainfo.pieces.size)
     @fm = FileManager.new(self)
+    @numPiecesLeft = metainfo.pieces.size - @pieces.select {|p| p.verified}.length 
     @peers = []
     @downloadedBytes = 0
     @uploadedBytes = 0
@@ -48,25 +50,25 @@ class Client
     p "#{@metainfo}"
     puts "Num peers: #{@peers.length}"
     on_event(self, :peerConnect) do |c, peer| 
-      puts "connected to: #{peer}\n"
+#      puts "connected to: #{peer}\n"
     end
     on_event(self, :peerTimeout) do |c, peer| 
-      p "Timeout connecting to: #{peer}\n"
-      connectToPeer
+#      p "Timeout connecting to: #{peer}\n"
     end
     on_event(self, :peerDisconnect) do |c, peer, reason| 
-      p "Peer removed: #{peer} #{reason}\n"
+#      p "Peer removed: #{peer} #{reason}\n"
       peer.connected = false
       peer.blacklisted = true
       peer.socket.close
       peer.clearRequests    # added this
       chokeAlgorithm
-      connectToPeer
     end
     on_event(self, :pieceValid) do |c, piece|
 #      p "Valid piece: #{@pieces.index(piece)}"
       @downloadedBytes+=@metainfo.pieceLength
       @piecesDownloaded+=1
+      @numPiecesLeft -= 1
+#      p "NUM PIECES LEFT IS GETTING PRINTED HERE YO #{@numPiecesLeft}"
       pieceIndex = @pieces.index(piece)
       if @desiredPieces.include?(pieceIndex) then
         @desiredPieces.delete(pieceIndex)
@@ -172,7 +174,7 @@ class Client
 
   def chokeAlgorithm
     return if @complete
-    p "called choke #{@complete}"
+#    p "called choke #{@complete}"
     @mutex.synchronize {
 
       @roundsSinceLastTime += 1
@@ -243,23 +245,17 @@ class Client
 
   # added this
   def setUpEndGame
+#    p "SETTIN  END GAME"
     i = 0
-    piecesLen = @pieces.size
-    while i < piecesLen
-      if @pieces[i] == nil then
-        i += 1
-        next
-      end
-      if !@pieces[i].verified then
-        for offset in @pieces[i].requested.keys
-          if @pieces[i].requested[offset] == nil then
-            next
-          end
-          length = @pieces[i].requested[offset][0]
-          if @endGamePieces[i] == nil then
+
+    for piece in @pieces
+      if !piece.verified
+        str = piece.getAllSectionsNotHad(0, [])
+        for section in str
+          if @endGamePieces[i].nil?
             @endGamePieces[i] = []
           end
-          @endGamePieces[i].push([offset, length])
+          @endGamePieces[i].push(section)
         end
       end
       i += 1
@@ -290,7 +286,7 @@ class Client
       if @complete then # seeding
         if Time.now - @lastInterval > 1 then
           puts
-          puts "Seeding..."
+          puts "Seeding #{@metainfo.torrentName}..."
           puts "Upload speed MB/s #{@uploadBytesInInterval/1000000.0}"
           puts "Connected to #{@peers.select {|p| p.connected}.length} peers"
           puts
@@ -307,7 +303,7 @@ class Client
 
         if Time.now - @lastInterval > 1 then
           puts
-          puts "There are #{piecesLeft} pieces left"
+          puts "There are #{piecesLeft} pieces left for #{@metainfo.torrentName}"
           puts "Download speed MB/s #{@bytesInInterval/1000000.0}"
           puts "Connected to #{@peers.select {|p| p.connected}.length} peers"
           puts
@@ -324,7 +320,7 @@ class Client
           blacklisted += 1 if p.blacklisted
         }
         if connected + connecting + blacklisted == @peers.length then
-          if connected + connecting < 30 && Time.now - @tracker.lastRequest > @tracker.minInterval then
+          if connected < 30 && Time.now - @tracker.lastRequest > @tracker.minInterval then
             p "Need more peers, sending request"
             @tracker.makeRequest
             p "new peers length #{@peers.length}"
@@ -375,6 +371,10 @@ class Client
             end
           end
         end
+        if @numPiecesLeft < 20 && !@endGameMode then
+          setUpEndGame
+          @endGameMode = true
+        end
 
         @peers.each { |peer|
           if peer.connected then
@@ -385,8 +385,6 @@ class Client
 
             if !peer.is_choking then
   #            p 'not choking'
-
-              foundSomethingToRequest = false
 
               for time in peer.requestsToTimes
                 if Time.now - time[0] > 60 then
@@ -407,7 +405,7 @@ class Client
                         end
                       end
                       if !alreadyRequested then
-  #                      p "END GAME REQUEST _________ ----------___________---------"
+#                        p "END GAME REQUEST _________ ----------___________---------"
                         peer.sendMessage(:request, pieceIndex, block[0], block[1])
                       end
                     end
@@ -428,9 +426,6 @@ class Client
                   offset, length = @pieces[pieceIndex].getSectionToRequest
                   if offset != nil then
                     peer.sendMessage(:request, pieceIndex, offset, length)  #increments peer.requestsToTimes
-                    if !foundSomethingToRequest 
-                      foundSomethingToRequest = true
-                    end
                   else
                     break
                   end
@@ -452,9 +447,6 @@ class Client
                   offset, length = @pieces[pieceIndex].getSectionToRequest
                   if offset != nil then
                     peer.sendMessage(:request, pieceIndex, offset, length)
-                    if !foundSomethingToRequest
-                      foundSomethingToRequest = true
-                    end
                   else
                     break
                   end
@@ -477,9 +469,6 @@ class Client
                   offset, length = @pieces[pieceIndex].getSectionToRequest
                   if !offset.nil? then
                     peer.sendMessage(:request, pieceIndex, offset, length)
-                    if !foundSomethingToRequest
-                      foundSomethingToRequest = true
-                    end
                     if @currentPieces.include?(pieceIndex) then
                       @currentPieces.push(pieceIndex)
                     end
@@ -489,20 +478,6 @@ class Client
                 end
                 if peer.requestsToTimes.size > 4 then
                   break
-                end
-              end
-
-              if !foundSomethingToRequest then
-                enterIt = true
-                for piece in @pieces
-                    if !piece.entirelyRequested
-                        enterIt = false
-                    end
-                end
-                if enterIt
-                    p "ENTERING END GAME MODE BITCH BITCH BITCH BITCH BITCH BITCH BITCH"
-                    setUpEndGame
-                    @endGameMode = true
                 end
               end
             end
@@ -524,7 +499,7 @@ class Client
   end
 
   def listenForPeers
-    server = TCPServer.new 51415
+    server = TCPServer.new @port
     loop do
       client = server.accept
       begin
@@ -547,6 +522,8 @@ class Client
             if @complete then
               @peersToUploadTo.push(peer)
               peer.send_event(:answer)
+            else
+              peer.sendMessage(:interested)
             end
           end
         }
