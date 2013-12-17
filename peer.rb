@@ -122,7 +122,7 @@ class Peer
             @requestsFrom.delete(request)
           end
         end
-        sleep(0.25);
+        sleep(0.1)
       end
     }
   end

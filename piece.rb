@@ -75,9 +75,9 @@ class Piece
     end
     n = @blocks.keys.sort.select {|x| x > offset}[0]
     if n.nil? then
-      desiredLength = [2**16, @pieceLength - offset].min
+      desiredLength = [2**14, @pieceLength - offset].min
     else
-      desiredLength = [2**16, n - offset].min
+      desiredLength = [2**14, n - offset].min
     end
     sectionsToRequest.push([offset, desiredLength])
     return getAllSectionsNotHad(offset + desiredLength, sectionsToRequest)
@@ -101,9 +101,9 @@ class Piece
 
     n = @blocks.keys.sort.select {|x| x > offset}[0]
     if n.nil? then
-      desiredLength = [2**16, @pieceLength - offset].min
+      desiredLength = [2**14, @pieceLength - offset].min
     else
-      desiredLength = [2**16, n - offset].min
+      desiredLength = [2**14, n - offset].min
     end
     @requested[offset] = [desiredLength, Time.now]
     return offset, desiredLength

@@ -415,7 +415,7 @@ class Client
                 next
               end
 
-              if peer.requestsToTimes.size > 4 then
+              if peer.requestsToTimes.size > 9 then
                 next
               end
 
@@ -423,7 +423,7 @@ class Client
                 if peer.havePieces.index(pieceIndex).nil? then
                   next
                 end
-                while peer.requestsToTimes.size < 5
+                while peer.requestsToTimes.size < 10
                   offset, length = @pieces[pieceIndex].getSectionToRequest
                   if offset != nil then
                     peer.sendMessage(:request, pieceIndex, offset, length)  #increments peer.requestsToTimes
@@ -431,12 +431,12 @@ class Client
                     break
                   end
                 end
-                if peer.requestsToTimes.size > 4 then
+                if peer.requestsToTimes.size > 9 then
                   break
                 end
               end
 
-              if peer.requestsToTimes.size > 4 then
+              if peer.requestsToTimes.size > 9 then
                 next
               end
 
@@ -444,7 +444,7 @@ class Client
                 if peer.havePieces.index(pieceIndex) == nil then
                   next
                 end
-                while peer.requestsToTimes.size < 5
+                while peer.requestsToTimes.size < 10
                   offset, length = @pieces[pieceIndex].getSectionToRequest
                   if offset != nil then
                     peer.sendMessage(:request, pieceIndex, offset, length)
@@ -452,12 +452,12 @@ class Client
                     break
                   end
                 end
-                if peer.requestsToTimes.size > 4 then
+                if peer.requestsToTimes.size > 9 then
                   break
                 end
               end
 
-              if peer.requestsToTimes.size > 4 then
+              if peer.requestsToTimes.size > 9 then
                 next
               end
 
@@ -466,7 +466,7 @@ class Client
                 if @pieces[pieceIndex].verified then
                   next
                 end
-                while peer.requestsToTimes.size < 5
+                while peer.requestsToTimes.size < 10
                   offset, length = @pieces[pieceIndex].getSectionToRequest
                   if !offset.nil? then
                     peer.sendMessage(:request, pieceIndex, offset, length)
@@ -477,7 +477,7 @@ class Client
                     break
                   end
                 end
-                if peer.requestsToTimes.size > 4 then
+                if peer.requestsToTimes.size > 9 then
                   break
                 end
               end
