@@ -77,12 +77,13 @@ class Client
       end
       offset = @pieces.index(piece) * @metainfo.pieceLength
       data = piece.data
-      @fm.write(data, offset)
-      @peers.each { |peer|
-        if peer.connected then
-          index = @pieces.index(piece)
-          peer.sendMessage(:have, index)
-        end
+      Thread.new {
+        @fm.write(data, offset)
+        @peers.each { |peer|
+          if peer.connected then
+            peer.sendMessage(:have, pieceIndex)
+          end
+        }
       }
     end
     on_event(self, :pieceInvalid) do |c, piece|

@@ -49,22 +49,26 @@ class FileManager
     newOffset = offset - lenCount
 
     fd, len = @files[currIndex]
-    fd.seek(newOffset)
-    if data.length + newOffset <= len then # writing all in this file
-      fd.write(data)
-    else
-      lenToWrite = len-newOffset
-      fd.write(data[0...lenToWrite])
-      data = data[len-newOffset..data.length]
-      while data.length > 0
-        currIndex+=1
-        fd, len = @files[currIndex]
-        lenToWrite = [data.length, len].min 
-        fd.seek(0)
+    begin
+      fd.seek(newOffset)
+      if data.length + newOffset <= len then # writing all in this file
+        fd.write(data)
+      else
+        lenToWrite = len-newOffset
         fd.write(data[0...lenToWrite])
-        data=data[lenToWrite..data.length]
+        data = data[len-newOffset..data.length]
+        while data.length > 0
+          currIndex+=1
+          fd, len = @files[currIndex]
+          lenToWrite = [data.length, len].min 
+          fd.seek(0)
+          fd.write(data[0...lenToWrite])
+          data=data[lenToWrite..data.length]
+        end
+        write(data, offset+lenToWrite)
       end
-      write(data, offset+lenToWrite)
+    rescue IOError
+      # p "whatever dont care"
     end
   end
 
@@ -87,30 +91,34 @@ class FileManager
     newOffset = offset - lenCount
 
     fd, len = @files[currIndex]
-    fd.seek(newOffset)
-    if length + newOffset <= len or currIndex == @files.length - 1 then # reading all in this file
-      data = fd.read([length, len-newOffset].min)
-      data = "" if data.nil?
-      return data
-    else #reading across multiple
-      lenToRead = len-newOffset
-      data = fd.read(lenToRead) 
-      data = "" if data.nil?
-      length = length - lenToRead
-      while length > 0 
-        currIndex += 1
-        if currIndex = @files.length-1 then # last file
-          return ""
+    begin
+      fd.seek(newOffset)
+      if length + newOffset <= len or currIndex == @files.length - 1 then # reading all in this file
+        data = fd.read([length, len-newOffset].min)
+        data = "" if data.nil?
+        return data
+      else #reading across multiple
+        lenToRead = len-newOffset
+        data = fd.read(lenToRead) 
+        data = "" if data.nil?
+        length = length - lenToRead
+        while length > 0 
+          currIndex += 1
+          if currIndex = @files.length-1 then # last file
+            return ""
+          end
+          fd, len = @files[currIndex]
+          readLen = [length, len].min
+          fd.seek(0)
+          x = fd.read readLen
+          x = "" if x.nil?
+          data.concat x
+          length = length - len
         end
-        fd, len = @files[currIndex]
-        readLen = [length, len].min
-        fd.seek(0)
-        x = fd.read readLen
-        x = "" if x.nil?
-        data.concat x
-        length = length - len
+        return data
       end
-      return data
+    rescue IOError
+      #p 'whatever'
     end
   end
 

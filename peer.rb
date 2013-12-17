@@ -163,6 +163,7 @@ class Peer
     begin
       @client.send_event(:peerDisconnect, self, reason)
       @listenThread.terminate
+      @sendThread.terminate
       @blacklisted = true
       @connected = false
       clearRequests
