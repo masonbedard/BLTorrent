@@ -84,6 +84,7 @@ class Client
             peer.sendMessage(:have, pieceIndex)
           end
         }
+        @pieces[pieceIndex].data = ''
       }
     end
     on_event(self, :pieceInvalid) do |c, piece|
