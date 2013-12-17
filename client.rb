@@ -12,7 +12,8 @@ class Client
   attr_accessor :rarity, :peers, :pieces, :fm, :metainfo, 
                 :peerId, :uploadedBytes, :downloadedBytes, 
                 :endGameMode, :bytesInInterval, :peersToUploadTo,
-                :uploadBytesInInterval, :numPiecesLeft, :port
+                :uploadBytesInInterval, :numPiecesLeft, :port,
+                :endGamePieces
 
   event :peerConnect, :peerTimeout, :peerDisconnect, :pieceValid, :pieceInvalid, :complete
 
@@ -60,7 +61,7 @@ class Client
       peer.connected = false
       peer.blacklisted = true
       peer.socket.close
-      peer.clearRequests    # added this
+      #peer.clearRequests    # added this
       chokeAlgorithm
     end
     on_event(self, :pieceValid) do |c, piece|
@@ -68,7 +69,7 @@ class Client
       @downloadedBytes+=@metainfo.pieceLength
       @piecesDownloaded+=1
       @numPiecesLeft -= 1
-#      p "NUM PIECES LEFT IS GETTING PRINTED HERE YO #{@numPiecesLeft}"
+     #p "NUM PIECES LEFT IS GETTING PRINTED HERE YO #{@numPiecesLeft}"
       pieceIndex = @pieces.index(piece)
       if @desiredPieces.include?(pieceIndex) then
         @desiredPieces.delete(pieceIndex)
@@ -247,21 +248,21 @@ class Client
 
   # added this
   def setUpEndGame
-#    p "SETTIN  END GAME"
+    #p "SETTIN  END GAME"
     i = 0
-
     for piece in @pieces
       if !piece.verified
         str = piece.getAllSectionsNotHad(0, [])
+        if @endGamePieces[i].nil?
+          @endGamePieces[i] = []
+        end
         for section in str
-          if @endGamePieces[i].nil?
-            @endGamePieces[i] = []
-          end
           @endGamePieces[i].push(section)
         end
       end
       i += 1
     end
+    #p "size of end game after set up #{@endGamePieces.keys.size}"
   end
 
   def keepTrackOfAverage(peer)
@@ -328,7 +329,7 @@ class Client
             p "new peers length #{@peers.length}"
           end
         else
-          (30 - (connected + connected)).times { connectToPeer }
+          (30 - (connecting + connected)).times { connectToPeer }
         end
 
         if Time.now - @tracker.lastRequest > @tracker.interval then
@@ -373,6 +374,7 @@ class Client
             end
           end
         end
+
         if @numPiecesLeft < 20 && !@endGameMode then
           setUpEndGame
           @endGameMode = true
@@ -380,7 +382,6 @@ class Client
 
         @peers.each { |peer|
           if peer.connected then
-
             if Time.now - peer.timeOfLastAverage > 1 then
               keepTrackOfAverage(peer)
             end
@@ -389,8 +390,8 @@ class Client
   #            p 'not choking'
 
               for time in peer.requestsToTimes
-                if Time.now - time[0] > 60 then
-                  peer.disconnect "Timeout receiving data!"
+                if Time.now - time[0] > 10 then
+                  peer.requestsToTimes.delete(time)
                 end 
               end
 
@@ -407,16 +408,15 @@ class Client
                         end
                       end
                       if !alreadyRequested then
-#                        p "END GAME REQUEST _________ ----------___________---------"
+                        #p "END GAME REQUEST _________ ----------___________---------"
                         peer.sendMessage(:request, pieceIndex, block[0], block[1])
                       end
                     end
                   end
                 end
-                next
               end
 
-              if peer.requestsToTimes.size > 9 then
+              if peer.requestsToTimes.size > 9 && !@endGameMode then
                 next
               end
 
@@ -424,7 +424,7 @@ class Client
                 if peer.havePieces.index(pieceIndex).nil? then
                   next
                 end
-                while peer.requestsToTimes.size < 10
+                while peer.requestsToTimes.size < 10 || @endGameMode
                   offset, length = @pieces[pieceIndex].getSectionToRequest
                   if offset != nil then
                     peer.sendMessage(:request, pieceIndex, offset, length)  #increments peer.requestsToTimes
@@ -432,12 +432,12 @@ class Client
                     break
                   end
                 end
-                if peer.requestsToTimes.size > 9 then
+                if peer.requestsToTimes.size > 9 && !@endGameMode then
                   break
                 end
               end
 
-              if peer.requestsToTimes.size > 9 then
+              if peer.requestsToTimes.size > 9 && !@endGameMode then
                 next
               end
 
@@ -445,7 +445,7 @@ class Client
                 if peer.havePieces.index(pieceIndex) == nil then
                   next
                 end
-                while peer.requestsToTimes.size < 10
+                while peer.requestsToTimes.size < 10 || @endGameMode
                   offset, length = @pieces[pieceIndex].getSectionToRequest
                   if offset != nil then
                     peer.sendMessage(:request, pieceIndex, offset, length)
@@ -453,12 +453,12 @@ class Client
                     break
                   end
                 end
-                if peer.requestsToTimes.size > 9 then
+                if peer.requestsToTimes.size > 9 && !@endGameMode then
                   break
                 end
               end
 
-              if peer.requestsToTimes.size > 9 then
+              if peer.requestsToTimes.size > 9 && !@endGameMode then
                 next
               end
 
@@ -467,7 +467,7 @@ class Client
                 if @pieces[pieceIndex].verified then
                   next
                 end
-                while peer.requestsToTimes.size < 10
+                while peer.requestsToTimes.size < 10 || @endGameMode
                   offset, length = @pieces[pieceIndex].getSectionToRequest
                   if !offset.nil? then
                     peer.sendMessage(:request, pieceIndex, offset, length)
@@ -478,7 +478,7 @@ class Client
                     break
                   end
                 end
-                if peer.requestsToTimes.size > 9 then
+                if peer.requestsToTimes.size > 9 && !@endGameMode then
                   break
                 end
               end
@@ -516,7 +516,7 @@ class Client
             peer = Peer.new(self, ip, port)
             peer.commRecv = Time.now
             peer.socket = client
-            puts "send bitfield"
+#            puts "send bitfield"
             peer.sendHandshakeNoRecv(@metainfo.infoHash, @peerId)
             peer.sendMessage(:bitfield)
             @peers.push(peer)

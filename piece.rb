@@ -1,6 +1,5 @@
 class Piece
-  attr_reader :data, :entirelyRequested
-  attr_accessor :verified, :requested
+  attr_accessor :verified, :requested, :data
   def initialize(client, pieceLength, hash)
     @client = client
     @pieceLength = pieceLength
@@ -11,7 +10,6 @@ class Piece
     @hash = hash
     @mutex = Mutex.new
     @hasAlreadyHappened = false
-    @entirelyRequested = false
   end
 
   def writeData(offset, data)
@@ -19,7 +17,6 @@ class Piece
       return if @verified
       @data[offset...(offset + data.length)] = data
       @blocks[offset] = data.length
-      @requested[offset] = nil    # added this
       if complete? then
         if valid? then
           if !@hasAlreadyHappened

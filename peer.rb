@@ -166,7 +166,7 @@ class Peer
       @sendThread.terminate
       @blacklisted = true
       @connected = false
-      clearRequests
+      #clearRequests
       @socket.close
     rescue Exception => e
 #      p "Exception in disconnect #{e}"
@@ -178,7 +178,7 @@ class Peer
     while data.length < 4 do
       begin 
         data = @socket.recv(4 - data.length) # block until we get 4 bytes
-      rescue Errno::ECONNRESET, IOError
+      rescue Errno::ECONNRESET, IOError, Errno::EBADF
         disconnect("Peer reset connection")
         return
       end
@@ -245,6 +245,7 @@ class Peer
         @socket.write data
       when :request
         @requestsToTimes.push([Time.now, first, second])
+        #p "SENDING REQUEST FOR #{first}.#{second}.#{third}+++++++++++++++"
         #p "sent a request ################################################ piece: #{first} offset #{second}  len #{third}"
         #p "to #{self}"
         #puts data.unpack("H*")
@@ -309,7 +310,7 @@ class Peer
       data += getHex(second, 8)
       data += third
       @client.uploadBytesInInterval += third.length 
-      p "sending piece to #{self}"
+#      p "sending piece to #{self}"
     when :cancel
       data = "\x00\x00\x00\x0d\x08"
       data += getHex(first, 8)
@@ -331,6 +332,7 @@ class Peer
   end
 
   def clearRequests
+    p "GETTING CALLED BUT IT SHOULDNT"
     for request in @requestsToTimes
       @client.pieces[request[1]].requested[request[2]] = nil 
     end
@@ -343,7 +345,7 @@ class Peer
     when "\x00"
 #      p "choke from #{self}"
       @is_choking = true
-      clearRequests
+#     clearRequests
     when "\x01"
 #      p "unchoke from #{self}"
       @is_choking = false
@@ -408,11 +410,12 @@ class Peer
       sendMessage(:interested)
 
     when "\x06"
-      p "request from #{self}"
+#      p "request from #{self}"
       # TODO
       pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
       offset = message[5..8].unpack("H*")[0].to_i(16)
       length = message[9..12].unpack("H*")[0].to_i(16)
+      #p "GOT REQUEST FOR #{pieceIndex}.#{offset}.#{length}+++++++++++++++"
       # @peers[peerIndex].requests.unshift(Request.new(pieceIndex, offset, length))
       alreadyRequested = false
       for request in @requestsFrom
@@ -427,6 +430,7 @@ class Peer
       pieceIndex = message[1..4].unpack("H*")[0].to_i(16)
       offset = message[5..8].unpack("H*")[0].to_i(16)
       data = message[9..message.length]
+      #p "GOT PIECE #{pieceIndex}.#{offset}+++++++++++++++++++"
 
       @bytesFromThisSecond += message.length    # ADDED THIS
 
@@ -438,6 +442,19 @@ class Peer
           break
         end
       end
+
+      if !@client.endGamePieces[pieceIndex].nil? then
+        for block in @client.endGamePieces[pieceIndex]
+          if offset == block[0] then
+            @client.endGamePieces[pieceIndex].delete(block)
+            if @client.endGamePieces[pieceIndex].size == 0 then
+              @client.endGamePieces.delete(pieceIndex)
+            end
+            break
+          end
+        end
+      end
+
       @client.bytesInInterval += data.length
       if @client.endGameMode then
         Thread.new {
