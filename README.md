@@ -13,5 +13,3 @@ Features
 * anti snubbing
 * choking algorithms
 * queuing
-
-a project written by chris terefinko that mason bedard will try and take credit from
